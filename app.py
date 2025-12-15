@@ -19,22 +19,28 @@ logger = logging.getLogger(__name__)
 # --- App & Database Initialization ---
 app = Flask(__name__)
 # Use DATABASE_URL if available, otherwise fallback to SQLite
-db_url = os.environ.get('DATABASE_URL')
+db_url = os.environ.get('DATABASE_URL', '').strip()
 
-# Fix: Handle empty strings or whitespace-only strings, or missing protocol
-if not db_url or not db_url.strip() or '://' not in db_url:
+# Fix: Handle invalid database URLs
+if not db_url or '://' not in db_url or db_url.startswith('psql '):
     logger.warning(f"DATABASE_URL is invalid or not set: '{db_url}'. Falling back to SQLite.")
     db_url = 'sqlite:///users.db'
+else:
+    # Fix: SQLAlchemy 1.4+ requires postgresql://, not postgres://
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-# Fix: SQLAlchemy 1.4+ requires postgresql://, not postgres://
-if db_url and db_url.startswith("postgres://"):
-    db_url = db_url.replace("postgres://", "postgresql://", 1)
-
-print(f"DEBUG: Final db_url being used: {db_url}")
+logger.info(f"Using database URL: {db_url[:20]}...")
 
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
+
+try:
+    db = SQLAlchemy(app)
+    logger.info("Database initialized successfully")
+except Exception as e:
+    logger.error(f"Database initialization failed: {e}")
+    raise
 
 
 # --- Supabase Client Initialization (optional) ---
