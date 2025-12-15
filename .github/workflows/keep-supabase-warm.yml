@@ -1,0 +1,16 @@
+name: Keep Supabase Warm
+
+on:
+  schedule:
+    - cron: "0 3 * * *"   # once per day (UTC)
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase DB
+        run: |
+          curl -X POST https://pyjnkqnmjmrlxtdyikcd.supabase.co/rest/v1/rpc/ping \
+          -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+          -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}"
