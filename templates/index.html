@@ -13,6 +13,13 @@
 
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    
+    <!-- Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        window.SUPABASE_URL = "{{ supabase_url }}";
+        window.SUPABASE_KEY = "{{ supabase_key }}";
+    </script>
 </head>
 <body>
     <!-- Floating decorative blobs (purely visual) -->
@@ -24,60 +31,76 @@
     </div>
 
     <main id="main-frame" aria-live="polite">
-        <!-- — LOGIN / PERSONAL INFO — -->
+        <!-- — LOGIN / AUTH — -->
         <section id="login-screen" class="panel">
             <div class="panel-inner">
                 <header class="panel-header">
                     <h1 class="brand">AuroHear</h1>
-                    <p class="lead">Quick hearing asymmetry screening — professional & private</p>
+                    <p class="lead">Professional Hearing Screening</p>
                 </header>
 
                 <div class="glass-card">
-                    <h2 class="card-title">Tell us about you</h2>
-                    <p class="muted">We only need a few details. This isn't a form — it's a warm handshake.</p>
+                    <div class="auth-toggle">
+                        <button type="button" id="toggle-signin" class="toggle-btn active">Sign In</button>
+                        <button type="button" id="toggle-signup" class="toggle-btn">Sign Up</button>
+                    </div>
 
-                    <form id="login-form" class="login-form" autocomplete="off">
-                        <div class="row">
-                            <div class="field">
-                                <label for="name">First name</label>
-                                <input type="text" id="name" required placeholder="e.g. Maitreya" />
+                    <form id="auth-form" class="login-form" autocomplete="off">
+                        <!-- Email/Password always visible -->
+                        <div class="field">
+                            <label for="email">Email</label>
+                            <input type="email" id="email" required placeholder="you@example.com" />
+                        </div>
+                        <div class="field">
+                            <label for="password">Password</label>
+                            <input type="password" id="password" required placeholder="••••••••" />
+                        </div>
+
+                        <!-- Extra fields for Sign Up only -->
+                        <div id="signup-fields" class="hidden-fields hidden">
+                            <div class="row">
+                                <div class="field">
+                                    <label for="name">First name</label>
+                                    <input type="text" id="name" placeholder="Name" />
+                                </div>
+                                <div class="field">
+                                    <label for="surname">Surname</label>
+                                    <input type="text" id="surname" placeholder="Surname" />
+                                </div>
                             </div>
-                            <div class="field">
-                                <label for="surname">Surname</label>
-                                <input type="text" id="surname" required placeholder="e.g. Patel" />
+                            <div class="row compact">
+                                <div class="field radio-group">
+                                    <label>Age group</label>
+                                    <div class="chips">
+                                        <label class="chip"><input type="radio" name="age_group" value="child"> Child</label>
+                                        <label class="chip"><input type="radio" name="age_group" value="adult"> Adult</label>
+                                        <label class="chip"><input type="radio" name="age_group" value="senior"> Senior</label>
+                                    </div>
+                                </div>
+                                <div class="field radio-group">
+                                    <label>Gender</label>
+                                    <div class="chips">
+                                        <label class="chip small"><input type="radio" name="gender" value="male"> M</label>
+                                        <label class="chip small"><input type="radio" name="gender" value="female"> F</label>
+                                        <label class="chip small"><input type="radio" name="gender" value="other"> O</label>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
-                        <div class="row compact">
-                            <div class="field radio-group">
-                                <label>Age group</label>
-                                <div class="chips">
-                                    <label class="chip"><input type="radio" name="age_group" value="child" required> Child</label>
-                                    <label class="chip"><input type="radio" name="age_group" value="adult"> Adult</label>
-                                    <label class="chip"><input type="radio" name="age_group" value="senior"> Senior</label>
-                                </div>
-                            </div>
-
-                            <div class="field radio-group">
-                                <label>Gender (optional)</label>
-                                <div class="chips">
-                                    <label class="chip small"><input type="radio" name="gender" value="male"> M</label>
-                                    <label class="chip small"><input type="radio" name="gender" value="female"> F</label>
-                                    <label class="chip small"><input type="radio" name="gender" value="other"> Other</label>
-                                    <label class="chip small"><input type="radio" name="gender" value="prefer_not_to_say"> Prefer not to say</label>
-                                </div>
-                            </div>
-                        </div>
+                        <div id="auth-error" class="error-msg hidden"></div>
 
                         <div class="cta-row">
-                            <button type="submit" class="btn primary large">Proceed</button>
-                            <button type="button" id="demo-btn" class="btn ghost">Preview demo</button>
+                            <button type="submit" id="auth-submit-btn" class="btn primary large">Sign In</button>
                         </div>
                     </form>
                 </div>
 
                 <footer class="panel-footer">
                     <small class="muted">Professional demo — not a medical diagnosis.</small>
+                    <div style="margin-top: 8px;">
+                        <button id="bypass-btn" class="btn ghost small" style="opacity: 0.5; font-size: 0.8rem;">Or continue as Guest (Demo)</button>
+                    </div>
                 </footer>
             </div>
         </section>

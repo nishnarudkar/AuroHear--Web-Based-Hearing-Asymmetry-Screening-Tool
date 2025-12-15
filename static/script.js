@@ -86,7 +86,7 @@ function playServerTone(params) {
         const baseDuration = parseFloat(params.duration || 0.35) * 1000;
         const fallbackMs = baseDuration + (params.freq <= 500 ? 300 : 150);
         const fallback = setTimeout(() => {
-            try { audio.pause(); } catch (e) {}
+            try { audio.pause(); } catch (e) { }
             logDebug('Audio playback fallback triggered');
             resolve();
         }, fallbackMs + 200);
@@ -132,16 +132,68 @@ function playChannelTest(channel) {
 /* -----------------------
    Event listeners (wiring)
    ----------------------- */
+/* -----------------------
+   Supabase & Auth Logic
+   ----------------------- */
+let supabase = null;
+if (window.SUPABASE_URL && window.SUPABASE_KEY) {
+    try {
+        supabase = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_KEY);
+        logDebug('Supabase client initialized');
+    } catch (e) {
+        console.error('Supabase init error (check CDN/Keys):', e);
+    }
+} else {
+    console.warn('Supabase URL/Key missing.');
+}
+
+let isSignUp = false; // default mode: Sign In
+
 document.addEventListener('DOMContentLoaded', () => {
-    // attach listeners to elements that might exist in markup
-    const loginForm = document.getElementById('login-form');
-    if (loginForm) loginForm.addEventListener('submit', onSubmitRegistration);
+    // Auth Toggles
+    const toggleSignIn = document.getElementById('toggle-signin');
+    const toggleSignUp = document.getElementById('toggle-signup');
+    const signupFields = document.getElementById('signup-fields');
+    const submitBtn = document.getElementById('auth-submit-btn');
 
-    // demo button (preview) and start button (real start)
-    const demoBtn = document.getElementById('demo-btn');
-    if (demoBtn) demoBtn.addEventListener('click', () => showScreen('consent'));
+    if (toggleSignIn && toggleSignUp) {
+        toggleSignIn.addEventListener('click', () => {
+            isSignUp = false;
+            toggleSignIn.classList.add('active');
+            toggleSignUp.classList.remove('active');
+            signupFields.classList.add('hidden');
+            submitBtn.textContent = 'Sign In';
+            document.getElementById('auth-error').classList.add('hidden');
+        });
 
-    // start button in welcome screen
+        toggleSignUp.addEventListener('click', () => {
+            isSignUp = true;
+            toggleSignIn.classList.remove('active');
+            toggleSignUp.classList.add('active');
+            signupFields.classList.remove('hidden');
+            submitBtn.textContent = 'Sign Up';
+            document.getElementById('auth-error').classList.add('hidden');
+        });
+    }
+
+    // Auth Form
+    const authForm = document.getElementById('auth-form');
+    if (authForm) authForm.addEventListener('submit', onAuthSubmit);
+
+    // Guest Bypass
+    const bypassBtn = document.getElementById('bypass-btn');
+    if (bypassBtn) bypassBtn.addEventListener('click', () => {
+        // Simple guest flow: just ask for name in a prompt or simplified mode
+        // For now, let's just use a default guest user or switch UI to old form?
+        // Easiest: Pre-fill a guest email/pass or just use the local register.
+        // Let's just create a local guest user directly without Supabase.
+        createGuestUser();
+    });
+
+    // ... (rest of listeners)
+    const demoBtn = document.getElementById('demo-btn'); // may be gone now
+
+    // ... Existing wiring
     const startBtn = document.getElementById('start-btn');
     if (startBtn) startBtn.addEventListener('click', () => showScreen('consent'));
 
@@ -202,7 +254,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
             if (confirm('Sure you want to exit?')) showScreen('welcome');
-        } else if (event.key === ' ' && (currentScreen === 'welcome' || currentScreen === 'login')) {
+        } else if (event.key === ' ' && (currentScreen === 'welcome')) {
             showScreen('consent');
         }
     });
@@ -210,44 +262,138 @@ document.addEventListener('DOMContentLoaded', () => {
     setActiveEar(null);
 });
 
-/* -----------------------
-   Registration
-   ----------------------- */
-async function onSubmitRegistration(e) {
+async function onAuthSubmit(e) {
     e.preventDefault();
-    userName = document.getElementById('name')?.value || '';
-    userSurname = document.getElementById('surname')?.value || '';
-    const data = {
-        name: userName,
-        surname: userSurname,
-        age_group: document.querySelector('input[name="age_group"]:checked')?.value || null,
-        gender: document.querySelector('input[name="gender"]:checked')?.value || null
-    };
-    // store locally for report generation
-    userGender = data.gender || '';
-    userAgeGroup = data.age_group || '';
-    logDebug('Submitting registration form');
+    if (!supabase) {
+        showError('Supabase not configured correctly.');
+        return;
+    }
+
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
+    const errorEl = document.getElementById('auth-error');
+    errorEl.classList.add('hidden');
+    toggleLoader(true);
+
+    try {
+        let authUser = null;
+        if (isSignUp) {
+            // REGISTER
+            const { data, error } = await supabase.auth.signUp({
+                email: email,
+                password: password,
+            });
+            if (error) throw error;
+            authUser = data.user;
+            if (data.session) {
+                // Determine demographic data
+                userName = document.getElementById('name')?.value || 'User';
+                userSurname = document.getElementById('surname')?.value || '';
+                userAgeGroup = document.querySelector('input[name="age_group"]:checked')?.value || 'adult';
+                userGender = document.querySelector('input[name="gender"]:checked')?.value || 'prefer_not_to_say';
+
+                // Sync with backend
+                await syncBackendUser(authUser.id, userName, userSurname, userAgeGroup, userGender);
+            } else {
+                // Confirmation email sent case?
+                alert('Please check your email to confirm sign up!');
+                toggleLoader(false);
+                return;
+            }
+        } else {
+            // SIGN IN
+            const { data, error } = await supabase.auth.signInWithPassword({
+                email: email,
+                password: password,
+            });
+            if (error) throw error;
+            authUser = data.user;
+
+            // Sync/Fetch backend user
+            // We'll pass nulls for demographics to keep existing if present
+            await syncBackendUser(authUser.id, null, null, null, null);
+        }
+
+    } catch (err) {
+        console.error('Auth error:', err);
+        showError(err.message || 'Authentication failed');
+        toggleLoader(false);
+    }
+}
+
+async function syncBackendUser(supabaseId, name, surname, age, gender) {
+    try {
+        const payload = {
+            supabase_id: supabaseId
+        };
+        // Only add if provided (update usage)
+        if (name) payload.name = name;
+        if (surname) payload.surname = surname;
+        if (age) payload.age_group = age;
+        if (gender) payload.gender = gender;
+
+        const response = await fetchWithTimeout('/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            timeout: 8000
+        });
+
+        if (!response.ok) throw new Error('Backend sync failed');
+        const result = await response.json();
+        userId = result.user_id; // Internal DB ID associated with Supabase ID
+
+        // Update local vars
+        if (result.name) userName = result.name;
+        if (result.surname) userSurname = result.surname;
+        if (result.age_group) userAgeGroup = result.age_group;
+        if (result.gender) userGender = result.gender;
+
+        logDebug(`User synced: SupabaseID=${supabaseId} -> LocalID=${userId} Name=${userName}`);
+        toggleLoader(false);
+        showScreen('welcome');
+    } catch (err) {
+        console.error('Backend sync error:', err);
+        showError('Database connection failed.');
+        toggleLoader(false);
+    }
+}
+
+async function createGuestUser() {
+    const guestName = prompt("Enter a guest name:", "Guest");
+    if (!guestName) return;
+    userName = guestName;
+    userSurname = "";
+
     toggleLoader(true);
     try {
         const response = await fetchWithTimeout('/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data),
+            body: JSON.stringify({ name: guestName, surname: 'Guest', age_group: 'adult' }), // No Supabase ID
             timeout: 6000
         });
-        if (!response.ok) throw new Error(`Registration failed: ${response.statusText}`);
         const result = await response.json();
         userId = result.user_id;
-        if (!userId) throw new Error('No user ID returned from server');
-        logDebug(`User registered: ID=${userId}`);
-        showScreen('welcome');
-    } catch (err) {
-        console.error('Registration error:', err);
-        alert('Failed to register user. Please try again.');
-    } finally {
         toggleLoader(false);
+        showScreen('welcome');
+    } catch (e) {
+        toggleLoader(false);
+        alert("Guest login failed");
     }
 }
+
+function showError(msg) {
+    const el = document.getElementById('auth-error');
+    if (el) {
+        el.textContent = msg;
+        el.classList.remove('hidden');
+    }
+}
+
+/* -----------------------
+   (Original Registration removed)
+   ----------------------- */
 
 /* -----------------------
    Start test / run test
@@ -547,7 +693,7 @@ async function downloadResults() {
         const newCanvas = generateReportCanvas();
         const date = new Date().toISOString().split('T')[0];
         const link = document.createElement('a');
-        link.download = `Hearing_Report_${(userName||'user')}_${(userSurname||'')}_${date}.png`;
+        link.download = `Hearing_Report_${(userName || 'user')}_${(userSurname || '')}_${date}.png`;
         link.href = newCanvas.toDataURL('image/png');
         link.click();
         logDebug('Report downloaded successfully');
@@ -579,7 +725,7 @@ async function downloadPDF() {
             const y = (pageH - h) / 2;
             pdf.addImage(imgData, 'PNG', x, y, w, h);
             const date = new Date().toISOString().split('T')[0];
-            pdf.save(`Hearing_Report_${(userName||'user')}_${(userSurname||'')}_${date}.pdf`);
+            pdf.save(`Hearing_Report_${(userName || 'user')}_${(userSurname || '')}_${date}.pdf`);
         } else {
             alert('PDF export requires jsPDF. Please ensure the library is loaded.');
         }
@@ -622,26 +768,26 @@ async function showResultsScreen(data) {
         type: 'line',
         data: {
             labels: testFrequencies,
-           datasets: [
-    {
-        label: 'Left Ear (Blue)',
-        data: testFrequencies.map(f => thresholds.left[f] !== undefined ? thresholds.left[f] : null),
-        borderColor: '#007bff',
-        backgroundColor: '#007bff',
-        spanGaps: true,
-        tension: 0.2,
-        pointRadius: 6
-    },
-    {
-        label: 'Right Ear (Red)',
-        data: testFrequencies.map(f => thresholds.right[f] !== undefined ? thresholds.right[f] : null),
-        borderColor: '#e74c3c',
-        backgroundColor: '#e74c3c',
-        spanGaps: true,
-        tension: 0.2,
-        pointRadius: 6
-    }
-]
+            datasets: [
+                {
+                    label: 'Left Ear (Blue)',
+                    data: testFrequencies.map(f => thresholds.left[f] !== undefined ? thresholds.left[f] : null),
+                    borderColor: '#007bff',
+                    backgroundColor: '#007bff',
+                    spanGaps: true,
+                    tension: 0.2,
+                    pointRadius: 6
+                },
+                {
+                    label: 'Right Ear (Red)',
+                    data: testFrequencies.map(f => thresholds.right[f] !== undefined ? thresholds.right[f] : null),
+                    borderColor: '#e74c3c',
+                    backgroundColor: '#e74c3c',
+                    spanGaps: true,
+                    tension: 0.2,
+                    pointRadius: 6
+                }
+            ]
 
         },
         options: {
@@ -649,7 +795,7 @@ async function showResultsScreen(data) {
                 legend: { position: 'top' },
                 tooltip: {
                     callbacks: {
-                        label: function(context) {
+                        label: function (context) {
                             let label = context.dataset.label || '';
                             if (label) {
                                 label += ': ';
@@ -667,7 +813,7 @@ async function showResultsScreen(data) {
                     type: 'logarithmic',
                     title: { display: true, text: 'Frequency (Hz)' },
                     ticks: {
-                        callback: function(val, index, ticks) {
+                        callback: function (val, index, ticks) {
                             return Number(val).toFixed(0);
                         }
                     }

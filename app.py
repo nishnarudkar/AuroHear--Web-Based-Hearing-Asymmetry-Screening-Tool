@@ -20,9 +20,18 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 # Use DATABASE_URL if available, otherwise fallback to SQLite
 db_url = os.environ.get('DATABASE_URL')
-if not db_url:
+
+# Fix: Handle empty strings or whitespace-only strings, or missing protocol
+if not db_url or not db_url.strip() or '://' not in db_url:
+    logger.warning(f"DATABASE_URL is invalid or not set: '{db_url}'. Falling back to SQLite.")
     db_url = 'sqlite:///users.db'
-    logger.info("DATABASE_URL not set; using local SQLite fallback")
+
+# Fix: SQLAlchemy 1.4+ requires postgresql://, not postgres://
+if db_url and db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+print(f"DEBUG: Final db_url being used: {db_url}")
+
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
@@ -50,33 +59,81 @@ class User(db.Model):
     surname = db.Column(db.String(100))
     age_group = db.Column(db.String(50))
     gender = db.Column(db.String(50))
+    # Link to Supabase Auth User ID (UUID string)
+    supabase_id = db.Column(db.String(36), unique=True, nullable=True) 
     left_avg = db.Column(db.Float, nullable=True)
     right_avg = db.Column(db.Float, nullable=True)
     dissimilarity = db.Column(db.Float, nullable=True)
     test_state = db.Column(db.Text, nullable=True)
 
+def run_migrations():
+    """Simple SQLite migration for dev/demo."""
+    with app.app_context():
+        inspector = db.inspect(db.engine)
+        columns = [c['name'] for c in inspector.get_columns('user')]
+        if 'supabase_id' not in columns:
+            logger.info("Migrating: Adding supabase_id column to User table")
+            with db.engine.connect() as conn:
+                conn.execute(db.text("ALTER TABLE user ADD COLUMN supabase_id TEXT UNIQUE"))
+                conn.commit()
+
+# Run migration on import/start
+try:
+    if 'sqlite' in app.config['SQLALCHEMY_DATABASE_URI']:
+        run_migrations()
+except Exception as e:
+    logger.warning(f"Migration failed (might be already done or not sqlite): {e}")
+
 
 # --- Core Application Routes ---
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', 
+                           supabase_url=os.environ.get("SUPABASE_URL"), 
+                           supabase_key=os.environ.get("SUPABASE_KEY"))
 
 
 @app.route('/register', methods=['POST'])
 def register():
     data = request.json or {}
+    supabase_id = data.get('supabase_id')
+    
+    # If supabase_id is provided, check if user exists
+    if supabase_id:
+        existing_user = User.query.filter_by(supabase_id=supabase_id).first()
+        if existing_user:
+            # Update info if needed, or just return existing ID
+            existing_user.name = data.get('name', existing_user.name)
+            existing_user.surname = data.get('surname', existing_user.surname)
+            db.session.commit()
+            logger.debug(f"User found via Supabase ID: local_ID={existing_user.id}")
+            return jsonify({
+                'user_id': existing_user.id, 
+                'is_new': False,
+                'name': existing_user.name,
+                'surname': existing_user.surname,
+                'age_group': existing_user.age_group,
+                'gender': existing_user.gender
+            })
+
     try:
         new_user = User(
             name=data.get('name'),
             surname=data.get('surname'),
             age_group=data.get('age_group'),
             gender=data.get('gender'),
+            supabase_id=supabase_id,
             test_state=json.dumps({})
         )
         db.session.add(new_user)
         db.session.commit()
-        logger.debug(f"User registered: ID={new_user.id}")
-        return jsonify({'user_id': new_user.id})
+        logger.debug(f"User registered: ID={new_user.id}, SupabaseID={supabase_id}")
+        return jsonify({
+            'user_id': new_user.id, 
+            'is_new': True,
+            'name': new_user.name,
+            'surname': new_user.surname
+        })
     except Exception as e:
         db.session.rollback()
         logger.error(f"Registration error: {e}")
@@ -273,10 +330,8 @@ def generate_tone():
         else:  # 'right'
             right_arr = note
 
-        # --- FIX: SWAP CHANNEL ASSIGNMENT ---
-        # The first column should be left, second should be right.
-        # We swap them here to counteract a system-level reversal.
-        audio = np.column_stack((right_arr, left_arr))
+        # Standard channel assignment: left channel first, right channel second
+        audio = np.column_stack((left_arr, right_arr))
 
         audio_int16 = (audio * 32767 * 0.8).astype(np.int16)
 
@@ -318,5 +373,8 @@ def create_db():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    import os
+    debug_mode = os.environ.get('FLASK_ENV') == 'development'
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=debug_mode, host='0.0.0.0', port=port)
 
