@@ -692,7 +692,7 @@ class ScreeningSessions(db.Model):
             }
 
 def run_migrations():
-    """Database migration for both SQLite and PostgreSQL"""QLite and PostgreSQL."""
+    """Database migration for both SQLite and PostgreSQL"""
     with app.app_context():
         try:
             inspector = db.inspect(db.engine)
@@ -1644,7 +1644,7 @@ def get_session_interaural_analysis(session_id):
 @app.route('/user/trend-analysis', methods=['GET'])
 def get_user_trend_analysis():
     """
-    Analyze trends in user's session history using simple heuristics.
+    Analyze trends in user session history using simple heuristics.
     
     Query Parameters:
     - user_id (required): User ID for access control
