@@ -155,7 +155,7 @@ function updateUIForAuthState() {
    UI helpers
    ----------------------- */
 function showScreen(screenId) {
-    const scrollableScreens = ['testing', 'results']; // screens that should scroll
+    const scrollableScreens = ['testing', 'results', 'history']; // screens that should scroll
     document.querySelectorAll('#main-frame > section').forEach(sec => sec.classList.add('hidden'));
     const el = document.getElementById(screenId + '-screen') || document.getElementById(screenId);
     if (el) el.classList.remove('hidden');
