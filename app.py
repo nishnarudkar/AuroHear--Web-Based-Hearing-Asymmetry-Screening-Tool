@@ -1094,13 +1094,31 @@ def generate_tone():
         duration = float(request.args.get('duration', 0.35))
         volume = float(request.args.get('volume', 1.0))
         channel = request.args.get('channel', 'both')
+        level_db = float(request.args.get('level_db', 40))  # Add dB level parameter
 
         if freq < 20 or freq > 20000:
             return ("Frequency out of audible range (20-20000 Hz)", 400)
 
+        # Enhanced volume calculation for production environments
+        # Ensure minimum audible volume even for low dB levels
+        base_volume = max(volume, 0.01)  # Minimum 1% volume
+        
+        # Apply dB-based scaling with production-friendly adjustments
+        if level_db < 40:
+            # For levels below 40 dB, use a more aggressive scaling to ensure audibility
+            db_scaling = max(0.05, min(1.0, (level_db + 20) / 60))  # Scale from 5% to 100%
+        else:
+            # For levels 40 dB and above, use standard scaling
+            db_scaling = min(1.0, level_db / 40)
+        
+        final_volume = base_volume * db_scaling
+        
+        # Log volume calculation for debugging
+        logger.debug(f"Tone generation: freq={freq}Hz, level_db={level_db}dB, volume={volume}, final_volume={final_volume}")
+
         sample_rate = 44100
         t = np.linspace(0, duration, int(sample_rate * duration), False)
-        note = np.sin(2 * np.pi * freq * t) * volume
+        note = np.sin(2 * np.pi * freq * t) * final_volume
 
         fade_samples = int(sample_rate * 0.01)
         fade_in = np.linspace(0, 1, fade_samples)
@@ -1121,12 +1139,20 @@ def generate_tone():
         # Standard channel assignment: left channel first, right channel second
         audio = np.column_stack((left_arr, right_arr))
 
-        audio_int16 = (audio * 32767 * 0.8).astype(np.int16)
+        # Increased scaling for production environments - ensure audibility
+        scaling_factor = 0.95  # Increased from 0.8 to 0.95 for better audibility
+        audio_int16 = (audio * 32767 * scaling_factor).astype(np.int16)
 
         bio = BytesIO()
         write(bio, sample_rate, audio_int16)
         bio.seek(0)
-        return Response(bio.getvalue(), mimetype='audio/wav')
+        
+        # Add headers for better audio streaming
+        response = Response(bio.getvalue(), mimetype='audio/wav')
+        response.headers['Cache-Control'] = 'no-cache'
+        response.headers['Content-Length'] = str(len(bio.getvalue()))
+        
+        return response
     except Exception as e:
         logger.error(f"Error generating tone: {e}")
         return ("Error generating tone", 500)

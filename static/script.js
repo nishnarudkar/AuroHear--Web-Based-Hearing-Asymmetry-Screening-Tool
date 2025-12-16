@@ -205,11 +205,31 @@ function playServerTone(params) {
     logDebug(`Playing tone: ${JSON.stringify(params)}`);
     return new Promise((resolve) => {
         const audio = new Audio(url);
-        audio.volume = Math.max(0, Math.min(1, calibrationVolume * (params.volume ?? 1)));
+        
+        // Enhanced volume calculation for production environments
+        const baseVolume = calibrationVolume * (params.volume ?? 1);
+        const minVolume = 0.1; // Ensure minimum 10% volume for audibility
+        const maxVolume = 1.0;
+        
+        // Apply production-friendly volume scaling
+        audio.volume = Math.max(minVolume, Math.min(maxVolume, baseVolume));
+        
+        // Add additional audio properties for better compatibility
+        audio.preload = 'auto';
+        audio.crossOrigin = 'anonymous';
+        
+        logDebug(`Audio volume set to: ${audio.volume} (base: ${baseVolume}, calibration: ${calibrationVolume})`);
+        
         audio.onended = () => {
             logDebug('Audio playback ended');
             resolve();
         };
+        
+        audio.onerror = (e) => {
+            console.error('Audio error:', e);
+            resolve(); // Continue test flow even on error
+        };
+        
         const baseDuration = parseFloat(params.duration || 0.35) * 1000;
         const fallbackMs = baseDuration + (params.freq <= 500 ? 300 : 150);
         const fallback = setTimeout(() => {
@@ -219,7 +239,7 @@ function playServerTone(params) {
         }, fallbackMs + 200);
 
         audio.play().then(() => {
-            logDebug('Audio playback started');
+            logDebug('Audio playback started successfully');
         }).catch(err => {
             console.error('Audio playback error:', err);
             clearTimeout(fallback);
@@ -230,11 +250,26 @@ function playServerTone(params) {
 }
 
 async function playTestTone(freq, channel, levelDb) {
-    // levelDb -> relative amplitude mapping (preserve original calculation)
+    // Enhanced amplitude calculation for production environments
+    // Pass dB level to server for better volume control
     const amplitude = Math.pow(10, (levelDb - 40) / 20);
+    
+    // Ensure minimum audible amplitude for production
+    const minAmplitude = 0.05; // 5% minimum volume
+    const adjustedAmplitude = Math.max(amplitude, minAmplitude);
+    
     const duration = 0.35;
     setActiveEar(channel);
-    await playServerTone({ freq: freq, duration: duration, volume: amplitude, channel: channel });
+    
+    // Pass both volume and dB level to server for enhanced processing
+    await playServerTone({ 
+        freq: freq, 
+        duration: duration, 
+        volume: adjustedAmplitude, 
+        channel: channel,
+        level_db: levelDb  // Pass dB level for server-side processing
+    });
+    
     const earEl = channel === 'left' ? document.getElementById('left-ear-icon') : document.getElementById('right-ear-icon');
     if (earEl) {
         earEl.animate([{ transform: 'scale(1.04)' }, { transform: 'scale(1)' }], { duration: 260, easing: 'ease-out' });
@@ -364,8 +399,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const playToneBtn = document.getElementById('play-tone-btn');
     if (playToneBtn) playToneBtn.addEventListener('click', () => {
-        // Professional calibration - instructions are clear without popup tips
-        playServerTone({ freq: 1000, duration: 1.0, volume: 1.0, channel: 'both' });
+        // Professional calibration - enhanced for production environments
+        playServerTone({ 
+            freq: 1000, 
+            duration: 1.0, 
+            volume: 1.0, 
+            channel: 'both',
+            level_db: 50  // Higher dB level for calibration tone
+        });
     });
 
     const volumeSlider = document.getElementById('volume-slider');
@@ -2653,6 +2694,38 @@ function createInterauralDifferenceChart(analysisData, containerId) {
         }
     });
 }
+
+/* -----------------------
+   Audio Debugging Utilities
+   ----------------------- */
+
+function debugAudioSettings() {
+    console.log('=== Audio Debug Information ===');
+    console.log('Calibration Volume:', calibrationVolume);
+    console.log('Browser:', navigator.userAgent);
+    console.log('Audio Context State:', window.AudioContext ? 'Supported' : 'Not Supported');
+    
+    // Test if Web Audio API is available
+    if (window.AudioContext || window.webkitAudioContext) {
+        console.log('Web Audio API: Available');
+    } else {
+        console.log('Web Audio API: Not Available');
+    }
+    
+    // Check if we're in a secure context (required for some audio features)
+    console.log('Secure Context:', window.isSecureContext);
+    console.log('Location:', window.location.href);
+    
+    return {
+        calibrationVolume,
+        userAgent: navigator.userAgent,
+        audioSupport: !!(window.AudioContext || window.webkitAudioContext),
+        secureContext: window.isSecureContext
+    };
+}
+
+// Add debug function to global scope for console access
+window.debugAudio = debugAudioSettings;
 
 /* -----------------------
    Feedback System
