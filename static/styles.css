@@ -406,9 +406,41 @@ progress::-webkit-progress-value { background: linear-gradient(90deg,var(--accen
 }
 
 /* Results area */
-.chart-wrap { margin-top: 12px; background: white; padding: 12px; border-radius: 10px; border: 1px solid rgba(59,47,47,0.04); }
+.chart-wrap { 
+    margin-top: 12px; 
+    background: white; 
+    padding: 12px; 
+    border-radius: 10px; 
+    border: 1px solid rgba(59,47,47,0.04);
+    overflow: visible;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.chart-wrap canvas {
+    max-width: 100% !important;
+    height: auto !important;
+}
 .table-wrap { margin-top: 12px; }
 #results-table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; }
+
+/* Ensure results screen has proper chart display */
+#results-screen .panel-inner {
+    overflow: visible;
+    max-width: none;
+}
+
+#results-screen .chart-container,
+#results-screen .chart-container-small {
+    width: 100%;
+    min-height: 400px;
+    overflow: visible;
+}
+
+#audiogram-chart {
+    max-width: 100% !important;
+    height: auto !important;
+}
 #results-table th, #results-table td { padding: 10px; text-align: center; border-bottom: 1px solid #f1e8df; color: var(--muted); }
 #results-table thead th { background: #faf6f2; color: var(--accent); font-weight: 700; }
 
@@ -1066,11 +1098,20 @@ progress::-webkit-progress-value { background: linear-gradient(90deg,var(--accen
 .chart-container {
     position: relative;
     height: 500px;
+    width: 100%;
     margin-bottom: 1.5rem;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 8px;
     padding: 1rem;
+    overflow: visible;
+    box-sizing: border-box;
+}
+
+.chart-container canvas {
+    max-width: 100% !important;
+    height: auto !important;
+    display: block;
 }
 
 /* Audiogram Legend */
@@ -1161,6 +1202,12 @@ progress::-webkit-progress-value { background: linear-gradient(90deg,var(--accen
     .chart-container {
         height: 400px;
         padding: 0.5rem;
+        overflow: visible;
+    }
+    
+    .chart-container canvas {
+        max-width: 100% !important;
+        height: auto !important;
     }
     
     .legend-items {
@@ -1297,11 +1344,20 @@ progress::-webkit-progress-value { background: linear-gradient(90deg,var(--accen
 .chart-container-small {
     position: relative;
     height: 300px;
+    width: 100%;
     margin: 1rem 0;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 6px;
     padding: 1rem;
+    overflow: visible;
+    box-sizing: border-box;
+}
+
+.chart-container-small canvas {
+    max-width: 100% !important;
+    height: auto !important;
+    display: block;
 }
 
 .analysis-disclaimer {
@@ -1337,6 +1393,12 @@ progress::-webkit-progress-value { background: linear-gradient(90deg,var(--accen
     .chart-container-small {
         height: 250px;
         padding: 0.5rem;
+        overflow: visible;
+    }
+    
+    .chart-container-small canvas {
+        max-width: 100% !important;
+        height: auto !important;
     }
 }
 

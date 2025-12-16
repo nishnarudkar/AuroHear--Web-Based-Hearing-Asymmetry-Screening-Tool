@@ -1295,8 +1295,24 @@ async function showResultsScreen(data) {
 
         },
         options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: {
+                padding: {
+                    top: 20,
+                    right: 20,
+                    bottom: 20,
+                    left: 20
+                }
+            },
             plugins: {
-                legend: { position: 'top' },
+                legend: { 
+                    position: 'top',
+                    labels: {
+                        padding: 20,
+                        usePointStyle: true
+                    }
+                },
                 tooltip: {
                     callbacks: {
                         label: function (context) {
@@ -1315,22 +1331,47 @@ async function showResultsScreen(data) {
             scales: {
                 x: {
                     type: 'logarithmic',
-                    title: { display: true, text: 'Frequency (Hz)' },
+                    title: { 
+                        display: true, 
+                        text: 'Frequency (Hz)',
+                        padding: { top: 10, bottom: 10 }
+                    },
                     ticks: {
                         callback: function (val, index, ticks) {
                             return Number(val).toFixed(0);
-                        }
+                        },
+                        padding: 10
+                    },
+                    grid: {
+                        display: true,
+                        drawBorder: true
                     }
                 },
                 y: {
                     reverse: true,
-                    title: { display: true, text: 'Threshold (dB HL)' },
+                    title: { 
+                        display: true, 
+                        text: 'Threshold (dB HL)',
+                        padding: { left: 10, right: 10 }
+                    },
                     min: -10,
-                    max: 40
+                    max: 40,
+                    ticks: {
+                        padding: 10
+                    },
+                    grid: {
+                        display: true,
+                        drawBorder: true
+                    }
                 }
             },
             hoverRadius: 8,
-            hoverBorderWidth: 2
+            hoverBorderWidth: 2,
+            elements: {
+                point: {
+                    hoverRadius: 8
+                }
+            }
         }
     });
 
@@ -1942,11 +1983,20 @@ function createAudiogramOverlay() {
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            layout: {
+                padding: {
+                    top: 20,
+                    right: 20,
+                    bottom: 20,
+                    left: 20
+                }
+            },
             plugins: {
                 title: {
                     display: true,
                     text: 'Historical Audiogram Overlay',
-                    font: { size: 16, weight: 'bold' }
+                    font: { size: 16, weight: 'bold' },
+                    padding: { top: 10, bottom: 20 }
                 },
                 legend: {
                     position: 'bottom',
@@ -1975,15 +2025,19 @@ function createAudiogramOverlay() {
                     title: { 
                         display: true, 
                         text: 'Frequency (Hz)',
-                        font: { weight: 'bold' }
+                        font: { weight: 'bold' },
+                        padding: { top: 10, bottom: 10 }
                     },
                     ticks: {
                         callback: function(val, index, ticks) {
                             return Number(val).toFixed(0);
-                        }
+                        },
+                        padding: 10
                     },
                     grid: {
-                        color: 'rgba(255, 255, 255, 0.1)'
+                        color: 'rgba(255, 255, 255, 0.1)',
+                        display: true,
+                        drawBorder: true
                     }
                 },
                 y: {
@@ -1991,12 +2045,18 @@ function createAudiogramOverlay() {
                     title: { 
                         display: true, 
                         text: 'Threshold (dB HL)',
-                        font: { weight: 'bold' }
+                        font: { weight: 'bold' },
+                        padding: { left: 10, right: 10 }
                     },
                     min: -10,
                     max: 40,
+                    ticks: {
+                        padding: 10
+                    },
                     grid: {
-                        color: 'rgba(255, 255, 255, 0.1)'
+                        color: 'rgba(255, 255, 255, 0.1)',
+                        display: true,
+                        drawBorder: true
                     }
                 }
             },
@@ -2874,10 +2934,20 @@ function createInterauralDifferenceChart(analysisData, containerId) {
         },
         options: {
             responsive: true,
+            maintainAspectRatio: false,
+            layout: {
+                padding: {
+                    top: 20,
+                    right: 20,
+                    bottom: 20,
+                    left: 20
+                }
+            },
             plugins: {
                 title: {
                     display: true,
-                    text: 'Interaural Threshold Differences by Frequency'
+                    text: 'Interaural Threshold Differences by Frequency',
+                    padding: { top: 10, bottom: 20 }
                 },
                 legend: {
                     display: false
@@ -2895,15 +2965,35 @@ function createInterauralDifferenceChart(analysisData, containerId) {
             },
             scales: {
                 x: {
-                    title: { display: true, text: 'Frequency' }
+                    title: { 
+                        display: true, 
+                        text: 'Frequency',
+                        padding: { top: 10, bottom: 10 }
+                    },
+                    ticks: {
+                        padding: 10
+                    },
+                    grid: {
+                        display: true,
+                        drawBorder: true
+                    }
                 },
                 y: {
-                    title: { display: true, text: 'Threshold Difference (dB)' },
+                    title: { 
+                        display: true, 
+                        text: 'Threshold Difference (dB)',
+                        padding: { left: 10, right: 10 }
+                    },
                     beginAtZero: true,
                     ticks: {
                         callback: function(value) {
                             return value + ' dB';
-                        }
+                        },
+                        padding: 10
+                    },
+                    grid: {
+                        display: true,
+                        drawBorder: true
                     }
                 }
             }
