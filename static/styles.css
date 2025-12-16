@@ -433,13 +433,26 @@ progress::-webkit-progress-value { background: linear-gradient(90deg,var(--accen
 #results-screen .chart-container,
 #results-screen .chart-container-small {
     width: 100%;
-    min-height: 400px;
+    min-height: 500px;
     overflow: visible;
+    padding: 2rem;
 }
 
 #audiogram-chart {
     max-width: 100% !important;
     height: auto !important;
+}
+
+/* History audiogram specific styling */
+#history-audiogram-chart {
+    max-width: 100% !important;
+    height: auto !important;
+}
+
+#history-audiogram-view .chart-container {
+    height: 700px;
+    min-height: 700px;
+    padding: 2rem;
 }
 #results-table th, #results-table td { padding: 10px; text-align: center; border-bottom: 1px solid #f1e8df; color: var(--muted); }
 #results-table thead th { background: #faf6f2; color: var(--accent); font-weight: 700; }
@@ -1097,21 +1110,23 @@ progress::-webkit-progress-value { background: linear-gradient(90deg,var(--accen
 /* Chart Container */
 .chart-container {
     position: relative;
-    height: 500px;
+    height: 600px;
     width: 100%;
     margin-bottom: 1.5rem;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 8px;
-    padding: 1rem;
+    padding: 2rem;
     overflow: visible;
     box-sizing: border-box;
+    min-height: 600px;
 }
 
 .chart-container canvas {
-    max-width: 100% !important;
-    height: auto !important;
+    max-width: calc(100% - 40px) !important;
+    max-height: calc(100% - 40px) !important;
     display: block;
+    margin: 0 auto;
 }
 
 /* Audiogram Legend */
@@ -1200,14 +1215,15 @@ progress::-webkit-progress-value { background: linear-gradient(90deg,var(--accen
     }
     
     .chart-container {
-        height: 400px;
-        padding: 0.5rem;
+        height: 500px;
+        padding: 1rem;
         overflow: visible;
+        min-height: 500px;
     }
     
     .chart-container canvas {
-        max-width: 100% !important;
-        height: auto !important;
+        max-width: calc(100% - 20px) !important;
+        max-height: calc(100% - 20px) !important;
     }
     
     .legend-items {
@@ -1343,21 +1359,23 @@ progress::-webkit-progress-value { background: linear-gradient(90deg,var(--accen
 
 .chart-container-small {
     position: relative;
-    height: 300px;
+    height: 400px;
     width: 100%;
     margin: 1rem 0;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 6px;
-    padding: 1rem;
+    padding: 2rem;
     overflow: visible;
     box-sizing: border-box;
+    min-height: 400px;
 }
 
 .chart-container-small canvas {
-    max-width: 100% !important;
-    height: auto !important;
+    max-width: calc(100% - 40px) !important;
+    max-height: calc(100% - 40px) !important;
     display: block;
+    margin: 0 auto;
 }
 
 .analysis-disclaimer {
@@ -1391,14 +1409,15 @@ progress::-webkit-progress-value { background: linear-gradient(90deg,var(--accen
     }
     
     .chart-container-small {
-        height: 250px;
-        padding: 0.5rem;
+        height: 350px;
+        padding: 1rem;
         overflow: visible;
+        min-height: 350px;
     }
     
     .chart-container-small canvas {
-        max-width: 100% !important;
-        height: auto !important;
+        max-width: calc(100% - 20px) !important;
+        max-height: calc(100% - 20px) !important;
     }
 }
 

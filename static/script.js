@@ -1299,17 +1299,17 @@ async function showResultsScreen(data) {
             maintainAspectRatio: false,
             layout: {
                 padding: {
-                    top: 20,
-                    right: 20,
-                    bottom: 20,
-                    left: 20
+                    top: 5,
+                    right: 5,
+                    bottom: 5,
+                    left: 5
                 }
             },
             plugins: {
                 legend: { 
                     position: 'top',
                     labels: {
-                        padding: 20,
+                        padding: 10,
                         usePointStyle: true
                     }
                 },
@@ -1334,13 +1334,13 @@ async function showResultsScreen(data) {
                     title: { 
                         display: true, 
                         text: 'Frequency (Hz)',
-                        padding: { top: 10, bottom: 10 }
+                        padding: { top: 5, bottom: 5 }
                     },
                     ticks: {
                         callback: function (val, index, ticks) {
                             return Number(val).toFixed(0);
                         },
-                        padding: 10
+                        padding: 5
                     },
                     grid: {
                         display: true,
@@ -1352,12 +1352,12 @@ async function showResultsScreen(data) {
                     title: { 
                         display: true, 
                         text: 'Threshold (dB HL)',
-                        padding: { left: 10, right: 10 }
+                        padding: { left: 5, right: 5 }
                     },
                     min: -10,
                     max: 40,
                     ticks: {
-                        padding: 10
+                        padding: 5
                     },
                     grid: {
                         display: true,
@@ -1985,10 +1985,10 @@ function createAudiogramOverlay() {
             maintainAspectRatio: false,
             layout: {
                 padding: {
-                    top: 20,
-                    right: 20,
-                    bottom: 20,
-                    left: 20
+                    top: 5,
+                    right: 5,
+                    bottom: 5,
+                    left: 5
                 }
             },
             plugins: {
@@ -1996,13 +1996,13 @@ function createAudiogramOverlay() {
                     display: true,
                     text: 'Historical Audiogram Overlay',
                     font: { size: 16, weight: 'bold' },
-                    padding: { top: 10, bottom: 20 }
+                    padding: { top: 5, bottom: 10 }
                 },
                 legend: {
                     position: 'bottom',
                     labels: {
                         usePointStyle: true,
-                        padding: 15,
+                        padding: 10,
                         font: { size: 11 }
                     }
                 },
