@@ -72,6 +72,32 @@ def migrate_database():
             else:
                 print('✓ screening_sessions table already exists')
             
+            # Create test_feedback table if missing (new feedback system)
+            if 'test_feedback' not in existing_tables:
+                print('Creating test_feedback table...')
+                with db.engine.connect() as conn:
+                    conn.execute(db.text('''
+                        CREATE TABLE test_feedback (
+                            id SERIAL PRIMARY KEY,
+                            session_id VARCHAR(36) NOT NULL,
+                            user_id INTEGER REFERENCES "user"(id),
+                            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                            test_clarity_rating INTEGER,
+                            audio_comfort_rating INTEGER,
+                            ease_of_use_rating INTEGER,
+                            suggestions_text TEXT,
+                            user_agent VARCHAR(500)
+                        )
+                    '''))
+                    
+                    # Create indexes for efficient queries
+                    conn.execute(db.text('CREATE INDEX idx_feedback_session ON test_feedback(session_id)'))
+                    conn.execute(db.text('CREATE INDEX idx_feedback_timestamp ON test_feedback(timestamp)'))
+                    conn.commit()
+                print('✓ test_feedback table created with indexes')
+            else:
+                print('✓ test_feedback table already exists')
+            
             # Drop old tables if they exist (migration from old structure)
             if 'screening_session' in existing_tables:
                 print('Found old screening_session table - consider migrating data before dropping')

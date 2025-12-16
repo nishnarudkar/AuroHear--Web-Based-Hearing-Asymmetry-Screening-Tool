@@ -135,6 +135,17 @@ function updateUIForAuthState() {
             if (currentUser.gender) details.push(`Gender: ${currentUser.gender}`);
             profileDetails.textContent = details.join(' • ') || 'Complete your profile';
         }
+        
+        // Collapse onboarding assistant for authenticated users to show profile better
+        const assistant = document.getElementById('onboarding-assistant');
+        const toggleBtn = document.getElementById('toggle-assistant');
+        const content = document.getElementById('assistant-content');
+        
+        if (assistant && toggleBtn && content) {
+            content.style.display = 'none';
+            toggleBtn.textContent = 'Show Guide';
+            assistant.classList.add('collapsed');
+        }
     }
     
     logDebug(`UI updated for ${isAuthenticated ? 'authenticated' : 'guest'} user`);
@@ -237,6 +248,9 @@ function playChannelTest(channel) {
         status.textContent = `Playing in ${channel.toUpperCase()} ear — listen...`;
         status.style.color = channel === 'left' ? '#3b2f2f' : '#7a5a4a';
     }
+    
+    // Channel test - no tips needed for professional interface
+    
     setActiveEar(channel);
     playServerTone({ freq: 1000, duration: 0.7, volume: 0.6, channel: channel })
         .then(() => setTimeout(() => {
@@ -266,6 +280,10 @@ if (window.SUPABASE_URL && window.SUPABASE_KEY) {
 let isSignUp = false; // default mode: Sign In
 
 document.addEventListener('DOMContentLoaded', async () => {
+    console.log('JavaScript is loading...');
+    console.log('Supabase URL:', window.SUPABASE_URL);
+    console.log('Supabase available:', !!window.supabase);
+    
     // Check authentication status on app load
     const isAuthenticated = await checkAuthenticationStatus();
     updateUIForAuthState();
@@ -303,11 +321,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Auth Form
     const authForm = document.getElementById('auth-form');
+    console.log('Auth form found:', !!authForm);
     if (authForm) authForm.addEventListener('submit', onAuthSubmit);
 
     // Guest Bypass
     const bypassBtn = document.getElementById('bypass-btn');
+    console.log('Bypass button found:', !!bypassBtn);
     if (bypassBtn) bypassBtn.addEventListener('click', () => {
+        console.log('Guest button clicked!');
         // Simple guest flow: just ask for name in a prompt or simplified mode
         // For now, let's just use a default guest user or switch UI to old form?
         // Easiest: Pre-fill a guest email/pass or just use the local register.
@@ -320,7 +341,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ... Existing wiring
     const startBtn = document.getElementById('start-btn');
-    if (startBtn) startBtn.addEventListener('click', () => showScreen('consent'));
+    if (startBtn) startBtn.addEventListener('click', () => {
+        // Professional interface - no popup tips needed
+        showScreen('consent');
+    });
 
     const agreeBtn = document.getElementById('agree-btn');
     if (agreeBtn) agreeBtn.addEventListener('click', () => showScreen('device-check'));
@@ -339,7 +363,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (backConsentBtn) backConsentBtn.addEventListener('click', () => showScreen('consent'));
 
     const playToneBtn = document.getElementById('play-tone-btn');
-    if (playToneBtn) playToneBtn.addEventListener('click', () => playServerTone({ freq: 1000, duration: 1.0, volume: 1.0, channel: 'both' }));
+    if (playToneBtn) playToneBtn.addEventListener('click', () => {
+        // Professional calibration - instructions are clear without popup tips
+        playServerTone({ freq: 1000, duration: 1.0, volume: 1.0, channel: 'both' });
+    });
 
     const volumeSlider = document.getElementById('volume-slider');
     if (volumeSlider) volumeSlider.addEventListener('input', (e) => {
@@ -414,12 +441,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (clearAllBtn) clearAllBtn.addEventListener('click', () => toggleAllSessions(false));
     if (showLatest5Btn) showLatest5Btn.addEventListener('click', showLatest5Sessions);
 
+    // Onboarding assistant
+    initializeOnboardingAssistant();
+    
+    // Test guidance system
+    initializeTestGuidance();
+
     setActiveEar(null);
 });
 
 async function onAuthSubmit(e) {
+    console.log('Auth form submitted!');
     e.preventDefault();
     if (!supabase) {
+        console.error('Supabase not available');
         showError('Supabase not configured correctly.');
         return;
     }
@@ -587,8 +622,15 @@ async function startHearingTest() {
         showScreen('login');
         return;
     }
+    
+    // Professional test start - no popup tips needed
+    
     logDebug(`Starting test for user ID=${userId}`);
     showScreen('testing');
+    
+    // Initialize test guidance
+    updateTestGuidance('starting', 'Initializing your hearing test...');
+    
     toggleLoader(true);
     try {
         const response = await fetchWithTimeout('/start_test', {
@@ -602,10 +644,15 @@ async function startHearingTest() {
         if (data.error) throw new Error(data.error);
         logDebug(`Test started: ${JSON.stringify(data)}`);
         toggleLoader(false);
+        
+        // Update guidance for first test
+        updateTestGuidance('testing', 'Your hearing test is now beginning. Listen carefully!');
+        
         await runTest(data);
     } catch (err) {
         toggleLoader(false);
         console.error('Start test error:', err);
+        updateTestGuidance('preparing', 'Test failed to start. Please try again.');
         alert(`Failed to start test: ${err.message}. Please try again.`);
         showScreen('welcome');
     }
@@ -613,30 +660,47 @@ async function startHearingTest() {
 
 async function runTest(testData) {
     logDebug(`Running test: ${JSON.stringify(testData)}`);
-    document.getElementById('progress-bar').value = testData.progress ?? 0;
-    document.getElementById('progress-label').textContent = `${Math.round(testData.progress ?? 0)}%`;
-    document.getElementById('status-label').textContent = `Testing ${testData.freq} Hz`;
-    document.getElementById('test-info').textContent = `Test ${testData.test_number}/${testData.total_tests} ⚡`;
-
+    
+    // Update progress with enhanced display
+    updateProgressWithPhases(testData.progress ?? 0, testData.test_number, testData.total_tests);
+    
+    // Update contextual guidance
+    const isFirstTest = testData.test_number === 1;
+    const isEarSwitch = testData.test_number > 1 && testData.test_number <= testData.total_tests / 2;
+    
+    let phase = 'threshold_finding';
+    if (isFirstTest) phase = 'first_tone';
+    else if (isEarSwitch) phase = 'ear_switching';
+    
+    updateTestGuidance('testing', `Testing ${testData.ear} ear at ${testData.freq} Hz`, {
+        ear: testData.ear,
+        frequency: testData.freq,
+        level: testData.level ?? 40
+    });
+    
+    updateInstructionText(phase, testData.ear, testData.freq);
+    
+    // Update ear status
+    updateEarStatus('left', testData.ear === 'left' ? 'testing' : 'inactive');
+    updateEarStatus('right', testData.ear === 'right' ? 'testing' : 'inactive');
+    
     const currentEar = testData.ear;
     setActiveEar(currentEar);
 
-    const responseStatus = document.getElementById('response-status');
-    if (responseStatus) responseStatus.textContent = 'Playing tone...';
-    const yesBtn = document.getElementById('yes-btn');
-    const noBtn = document.getElementById('no-btn');
-    if (yesBtn) yesBtn.disabled = true;
-    if (noBtn) noBtn.disabled = true;
+    // Disable buttons and show tone indicator
+    enableResponseButtons(false);
+    showToneIndicator(true, { frequency: testData.freq, level: testData.level ?? 40 });
 
     let attempts = 0;
     const maxAttempts = 3;
     while (attempts < maxAttempts) {
         try {
             await playTestTone(testData.freq, testData.ear, testData.level ?? 40);
-            if (responseStatus) responseStatus.textContent =
-                `Freq: ${testData.freq} Hz | Level: ${testData.level ?? 40} dB HL — Did you hear it?`;
-            if (yesBtn) yesBtn.disabled = false;
-            if (noBtn) noBtn.disabled = false;
+            
+            // Tone finished playing
+            showToneIndicator(false);
+            enableResponseButtons(true);
+            
             logDebug('Tone played, buttons enabled');
             return;
         } catch (err) {
@@ -644,10 +708,9 @@ async function runTest(testData) {
             console.error(`Tone playback error (attempt ${attempts}):`, err);
             if (attempts === maxAttempts) {
                 console.error('Max playback attempts reached');
-                alert('Error playing tone after multiple attempts. Please try again or restart the test.');
-                if (responseStatus) responseStatus.textContent = 'Error playing tone. Please try again.';
-                if (yesBtn) yesBtn.disabled = false;
-                if (noBtn) noBtn.disabled = false;
+                updateTestGuidance('testing', 'Audio error occurred. Please try again or check your headphones.');
+                showToneIndicator(false);
+                enableResponseButtons(true);
                 return;
             }
             await new Promise(resolve => setTimeout(resolve, 500));
@@ -695,7 +758,8 @@ async function submitResponse(heard) {
         toggleLoader(false);
         if (testData.completed) {
             logDebug('Test completed, showing results');
-            showResultsScreen(testData);
+            updateTestGuidance('completed', 'Congratulations! Your hearing test is complete.');
+            setTimeout(() => showResultsScreen(testData), 1000);
         } else {
             setTimeout(() => runTest(testData), 150);
         }
@@ -1028,6 +1092,37 @@ async function showResultsScreen(data) {
         ? 'Recommendation: Consult an audiologist for follow-up.'
         : 'This is a demo — if you have concerns, consult a professional.';
 
+    // Analyze interaural differences for current results
+    analyzeCurrentThresholds(thresholds).then(analysis => {
+        if (analysis) {
+            // Add interaural analysis section to results
+            const resultsContainer = document.querySelector('#results-screen .panel-inner');
+            const analysisSection = document.createElement('div');
+            analysisSection.className = 'interaural-section';
+            analysisSection.innerHTML = `
+                <h3 class="subtitle">Interaural Threshold Analysis</h3>
+                <div id="interaural-chart-container" class="chart-container-small">
+                    <!-- Chart will be inserted here -->
+                </div>
+                <div class="analysis-disclaimer">
+                    <p class="muted small">
+                        <strong>Note:</strong> This analysis provides objective threshold measurements only. 
+                        Differences ≥15 dB are highlighted for reference. No diagnostic interpretation is provided.
+                    </p>
+                </div>
+            `;
+            
+            // Insert before the download buttons
+            const ctaRow = resultsContainer.querySelector('.cta-row');
+            resultsContainer.insertBefore(analysisSection, ctaRow);
+            
+            // Create the interaural difference chart
+            createInterauralDifferenceChart(analysis, 'interaural-chart-container');
+        }
+    }).catch(error => {
+        console.error('Failed to analyze interaural differences:', error);
+    });
+
     // store for report generation
     window.__lastResults = {
         thresholds: thresholds,
@@ -1053,6 +1148,11 @@ async function showResultsScreen(data) {
     } catch (err) {
         console.error('Save results error:', err);
     }
+
+    // Show feedback section after a brief delay
+    setTimeout(() => {
+        showFeedbackSection(data.session_id);
+    }, 2000);
 }
 
 /* -----------------------
@@ -1203,9 +1303,38 @@ function displayEnhancedTestHistory(data) {
     const historyList = document.getElementById('history-list');
     historyList.innerHTML = '';
     
-    // Add statistics header
+    // Add statistics header with trend analysis and educational summary
     const statsHeader = document.createElement('div');
     statsHeader.className = 'history-stats';
+    
+    let trendSection = '';
+    if (data.trend_analysis && data.trend_analysis.classification !== 'insufficient_data') {
+        const trend = data.trend_analysis;
+        const trendClass = getTrendDisplayClass(trend.classification);
+        
+        trendSection = `
+            <div class="trend-analysis-section">
+                <h4>Measurement Pattern Analysis</h4>
+                <div class="trend-summary">
+                    <span class="trend-badge ${trendClass}">${formatTrendClassification(trend.classification)}</span>
+                    <span class="trend-description">${trend.description}</span>
+                </div>
+                <div class="trend-details">
+                    <small class="muted">
+                        Based on ${trend.sessions_analyzed} sessions over ${trend.time_span_days} days • 
+                        ${trend.disclaimer}
+                    </small>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Add educational summary section
+    let summarySection = '';
+    if (data.educational_summary && data.educational_summary.summary_type !== 'insufficient_data') {
+        summarySection = displayEducationalSummary(data.educational_summary);
+    }
+    
     statsHeader.innerHTML = `
         <div class="stats-grid">
             <div class="stat-item">
@@ -1221,6 +1350,8 @@ function displayEnhancedTestHistory(data) {
                 <span class="stat-label">Showing</span>
             </div>
         </div>
+        ${trendSection}
+        ${summarySection}
     `;
     historyList.appendChild(statsHeader);
     
@@ -1307,6 +1438,7 @@ function displayEnhancedTestHistory(data) {
                     </span>
                 </div>
                 ${frequencyDetails}
+                ${displayInterauralDifferences(session)}
                 <div class="session-info">
                     <small class="muted">
                         Session: ${session.session_id} • 
@@ -1734,3 +1866,1052 @@ function showProfileError(message) {
         errorEl.classList.remove('hidden');
     }
 }
+
+/* -----------------------
+   Trend Analysis Display Functions
+   ----------------------- */
+function getTrendDisplayClass(classification) {
+    switch (classification) {
+        case 'stable':
+            return 'trend-stable';
+        case 'variable':
+            return 'trend-variable';
+        case 'changing':
+            return 'trend-changing';
+        default:
+            return 'trend-unknown';
+    }
+}
+
+function formatTrendClassification(classification) {
+    switch (classification) {
+        case 'stable':
+            return 'Stable';
+        case 'variable':
+            return 'Variable';
+        case 'changing':
+            return 'Changing';
+        case 'insufficient_data':
+            return 'Insufficient Data';
+        case 'analysis_error':
+            return 'Analysis Error';
+        default:
+            return 'Unknown';
+    }
+}
+
+async function fetchDetailedTrendAnalysis() {
+    if (!currentUser.isAuthenticated) {
+        return null;
+    }
+    
+    try {
+        const response = await fetchWithTimeout(`/user/trend-analysis?user_id=${currentUser.id}`, {
+            timeout: 5000
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to fetch trend analysis');
+        }
+        
+        const data = await response.json();
+        return data.trend_analysis;
+    } catch (error) {
+        console.error('Trend analysis fetch error:', error);
+        return null;
+    }
+}
+
+function displayDetailedTrendAnalysis(trendData) {
+    if (!trendData || trendData.classification === 'insufficient_data') {
+        return '<p class="muted">Insufficient data for trend analysis</p>';
+    }
+    
+    const metrics = trendData.metrics || {};
+    const sessionRange = trendData.session_range || {};
+    
+    return `
+        <div class="detailed-trend-analysis">
+            <h5>Detailed Pattern Analysis</h5>
+            <div class="trend-classification">
+                <span class="trend-badge ${getTrendDisplayClass(trendData.classification)}">
+                    ${formatTrendClassification(trendData.classification)}
+                </span>
+                <p class="trend-description">${trendData.description}</p>
+            </div>
+            
+            <div class="trend-metrics">
+                <h6>Measurement Variability</h6>
+                <div class="metrics-grid">
+                    <div class="metric-item">
+                        <span class="metric-label">Overall Variance</span>
+                        <span class="metric-value">${metrics.overall_variance || 'N/A'} dB²</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">Left Ear Variance</span>
+                        <span class="metric-value">${metrics.left_ear_variance || 'N/A'} dB²</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">Right Ear Variance</span>
+                        <span class="metric-value">${metrics.right_ear_variance || 'N/A'} dB²</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">Interaural Variance</span>
+                        <span class="metric-value">${metrics.interaural_variance || 'N/A'} dB²</span>
+                    </div>
+                </div>
+            </div>
+            
+            ${sessionRange.earliest ? `
+                <div class="trend-timeline">
+                    <h6>Analysis Period</h6>
+                    <div class="timeline-info">
+                        <span>Sessions: ${trendData.sessions_analyzed}</span>
+                        <span>Time span: ${trendData.time_span_days} days</span>
+                        <span>First avg: ${sessionRange.first_avg} dB HL</span>
+                        <span>Latest avg: ${sessionRange.last_avg} dB HL</span>
+                    </div>
+                </div>
+            ` : ''}
+            
+            <div class="trend-disclaimer">
+                <p class="muted small">
+                    <strong>Note:</strong> ${trendData.disclaimer}
+                </p>
+            </div>
+        </div>
+    `;
+}
+
+/* -----------------------
+   Educational Summary Display
+   ----------------------- */
+function displayEducationalSummary(summary) {
+    if (!summary || summary.summary_type === 'insufficient_data') {
+        return '';
+    }
+    
+    const summaryClass = getSummaryDisplayClass(summary.pattern_classification);
+    
+    let keyObservationsHtml = '';
+    if (summary.key_observations && summary.key_observations.length > 0) {
+        keyObservationsHtml = `
+            <div class="summary-observations">
+                <h6>Key Observations</h6>
+                <ul class="observation-list">
+                    ${summary.key_observations.map(obs => `<li>${obs}</li>`).join('')}
+                </ul>
+            </div>
+        `;
+    }
+    
+    let educationalNotesHtml = '';
+    if (summary.educational_notes && summary.educational_notes.length > 0) {
+        educationalNotesHtml = `
+            <div class="summary-education">
+                <h6>Educational Information</h6>
+                <ul class="education-list">
+                    ${summary.educational_notes.map(note => `<li>${note}</li>`).join('')}
+                </ul>
+            </div>
+        `;
+    }
+    
+    let recommendationsHtml = '';
+    if (summary.recommendations && summary.recommendations.length > 0) {
+        recommendationsHtml = `
+            <div class="summary-recommendations">
+                <h6>Recommendations</h6>
+                <ul class="recommendation-list">
+                    ${summary.recommendations.map(rec => `<li>${rec}</li>`).join('')}
+                </ul>
+            </div>
+        `;
+    }
+    
+    return `
+        <div class="educational-summary-section">
+            <div class="summary-header">
+                <h4>${summary.title}</h4>
+                <span class="summary-period">${summary.analysis_period}</span>
+            </div>
+            
+            <div class="summary-main-message ${summaryClass}">
+                <p class="main-message">${summary.main_message}</p>
+            </div>
+            
+            <div class="summary-content">
+                ${keyObservationsHtml}
+                ${educationalNotesHtml}
+                ${recommendationsHtml}
+            </div>
+            
+            <div class="summary-disclaimer">
+                <p class="disclaimer-text">
+                    <strong>Important:</strong> ${summary.disclaimer}
+                </p>
+            </div>
+        </div>
+    `;
+}
+
+function getSummaryDisplayClass(classification) {
+    switch (classification) {
+        case 'stable':
+            return 'summary-stable';
+        case 'variable':
+            return 'summary-variable';
+        case 'changing':
+            return 'summary-changing';
+        default:
+            return 'summary-neutral';
+    }
+}
+
+async function fetchEducationalSummary() {
+    if (!currentUser.isAuthenticated) {
+        return null;
+    }
+    
+    try {
+        const response = await fetchWithTimeout(`/user/measurement-summary?user_id=${currentUser.id}`, {
+            timeout: 8000
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to fetch educational summary');
+        }
+        
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error('Educational summary fetch error:', error);
+        return null;
+    }
+}
+
+function displayProfessionalGuidance(guidanceData) {
+    if (!guidanceData) return '';
+    
+    const importantNotes = guidanceData.important_notes || {};
+    const seekHelp = guidanceData.when_to_seek_professional_help || [];
+    
+    return `
+        <div class="professional-guidance">
+            <h5>Professional Consultation Guidance</h5>
+            
+            <div class="guidance-notes">
+                <h6>Important Reminders</h6>
+                <ul class="guidance-list">
+                    <li><strong>Screening Nature:</strong> ${importantNotes.screening_nature}</li>
+                    <li><strong>Professional Evaluation:</strong> ${importantNotes.professional_evaluation}</li>
+                    <li><strong>Measurement Limitations:</strong> ${importantNotes.measurement_limitations}</li>
+                </ul>
+            </div>
+            
+            ${seekHelp.length > 0 ? `
+                <div class="seek-help-section">
+                    <h6>Consider Professional Evaluation If You Experience:</h6>
+                    <ul class="seek-help-list">
+                        ${seekHelp.map(item => `<li>${item}</li>`).join('')}
+                    </ul>
+                </div>
+            ` : ''}
+            
+            <div class="consultation-reminder">
+                <p class="consultation-text">
+                    <strong>Remember:</strong> ${importantNotes.consultation_guidance}
+                </p>
+            </div>
+        </div>
+    `;
+}
+
+/* -----------------------
+   Contextual Test Guidance
+   ----------------------- */
+function initializeTestGuidance() {
+    // Help panel toggle
+    const helpBtn = document.getElementById('guidance-help');
+    const helpPanel = document.getElementById('help-panel');
+    const closeHelpBtn = document.getElementById('close-help');
+    
+    if (helpBtn && helpPanel) {
+        helpBtn.addEventListener('click', () => {
+            helpPanel.classList.toggle('hidden');
+            helpPanel.setAttribute('aria-modal', !helpPanel.classList.contains('hidden'));
+        });
+    }
+    
+    if (closeHelpBtn && helpPanel) {
+        closeHelpBtn.addEventListener('click', () => {
+            helpPanel.classList.add('hidden');
+            helpPanel.setAttribute('aria-modal', 'false');
+        });
+    }
+    
+    // Pause functionality
+    const pauseBtn = document.getElementById('pause-test');
+    if (pauseBtn) {
+        pauseBtn.addEventListener('click', pauseTest);
+    }
+    
+    // Initialize guidance state
+    updateTestGuidance('preparing', 'Getting ready to start your hearing test...');
+}
+
+function updateTestGuidance(phase, message, details = {}) {
+    const guidanceTitle = document.getElementById('guidance-title');
+    const guidanceMessage = document.getElementById('guidance-message');
+    const guidanceIcon = document.querySelector('.guidance-icon');
+    
+    // Phase-specific guidance
+    const phaseConfig = {
+        preparing: {
+            title: 'Getting Ready',
+            icon: '🎯',
+            message: message || 'Preparing your hearing test...'
+        },
+        starting: {
+            title: 'Test Starting',
+            icon: '🚀',
+            message: message || 'Your hearing test is about to begin...'
+        },
+        testing: {
+            title: 'Testing in Progress',
+            icon: '🎧',
+            message: message || 'Listen carefully for the tone...'
+        },
+        switching: {
+            title: 'Switching Ears',
+            icon: '🔄',
+            message: message || 'Now testing the other ear...'
+        },
+        completing: {
+            title: 'Almost Done',
+            icon: '🏁',
+            message: message || 'Finishing up your hearing test...'
+        },
+        completed: {
+            title: 'Test Complete',
+            icon: '✅',
+            message: message || 'Your hearing test is complete!'
+        }
+    };
+    
+    const config = phaseConfig[phase] || phaseConfig.testing;
+    
+    if (guidanceTitle) guidanceTitle.textContent = config.title;
+    if (guidanceMessage) guidanceMessage.textContent = config.message;
+    if (guidanceIcon) guidanceIcon.textContent = config.icon;
+    
+    // Update test context information
+    updateTestContext(details);
+}
+
+function updateTestContext(details) {
+    const currentEar = document.getElementById('current-ear');
+    const currentFreq = document.getElementById('current-frequency');
+    const currentLevel = document.getElementById('current-level');
+    
+    if (details.ear && currentEar) {
+        currentEar.textContent = `${details.ear.charAt(0).toUpperCase() + details.ear.slice(1)} Ear`;
+    }
+    
+    if (details.frequency && currentFreq) {
+        currentFreq.textContent = `${details.frequency} Hz`;
+    }
+    
+    if (details.level !== undefined && currentLevel) {
+        currentLevel.textContent = `${details.level} dB HL`;
+    }
+}
+
+function updateProgressWithPhases(progress, testNumber, totalTests) {
+    const progressBar = document.getElementById('progress-bar');
+    const progressLabel = document.getElementById('progress-label');
+    const progressText = document.getElementById('progress-text');
+    const progressSection = document.querySelector('.progress-section');
+    
+    if (progressBar) {
+        progressBar.value = progress;
+        progressSection.setAttribute('aria-valuenow', progress);
+    }
+    
+    if (progressLabel) {
+        progressLabel.textContent = `${Math.round(progress)}%`;
+    }
+    
+    if (progressText) {
+        if (testNumber && totalTests) {
+            progressText.textContent = `Test ${testNumber} of ${totalTests}`;
+        } else {
+            progressText.textContent = `${Math.round(progress)}% complete`;
+        }
+    }
+    
+    // Update phase markers
+    const phaseMarkers = document.querySelectorAll('.phase-marker');
+    phaseMarkers.forEach(marker => {
+        const phase = parseInt(marker.dataset.phase);
+        marker.classList.toggle('active', progress >= phase);
+        marker.classList.toggle('current', Math.abs(progress - phase) < 12.5);
+    });
+}
+
+function updateInstructionText(phase, earSide, frequency) {
+    const instructionTitle = document.getElementById('instruction-title');
+    const instructionText = document.getElementById('instruction-text');
+    const instructionTips = document.getElementById('instruction-tips');
+    
+    let title = 'Listen Carefully';
+    let text = 'A tone will play. Click "YES" if you hear it, "NO" if you don\'t.';
+    let tips = [];
+    
+    switch (phase) {
+        case 'first_tone':
+            title = 'Listen Carefully';
+            text = `Listen for a tone in your ${earSide} ear.`;
+            tips = [];
+            break;
+            
+        case 'threshold_finding':
+            title = 'Threshold Detection';
+            text = `Listen carefully for tones in your ${earSide} ear at ${frequency} Hz.`;
+            tips = [];
+            break;
+            
+        case 'ear_switching':
+            title = 'Testing Other Ear';
+            text = `Now testing your ${earSide} ear.`;
+            tips = [];
+            break;
+            
+        case 'frequency_change':
+            title = 'New Frequency';
+            text = `Testing ${frequency} Hz in your ${earSide} ear.`;
+            tips = [];
+            break;
+    }
+    
+    if (instructionTitle) instructionTitle.textContent = title;
+    if (instructionText) instructionText.textContent = text;
+    
+    // Clear any existing tips for clean professional appearance
+    if (instructionTips) {
+        instructionTips.innerHTML = '';
+    }
+}
+
+function updateEarStatus(ear, status, message = '') {
+    const earElement = document.getElementById(`${ear}-ear-icon`);
+    const statusElement = document.getElementById(`${ear}-ear-status`);
+    
+    if (earElement) {
+        // Remove all status classes
+        earElement.classList.remove('ear-active', 'ear-inactive', 'ear-testing', 'ear-complete');
+        
+        // Add current status
+        earElement.classList.add(`ear-${status}`);
+        
+        // Update ARIA attributes
+        if (status === 'testing') {
+            earElement.setAttribute('aria-label', `${ear} ear - currently being tested`);
+        } else if (status === 'complete') {
+            earElement.setAttribute('aria-label', `${ear} ear - testing complete`);
+        } else {
+            earElement.setAttribute('aria-label', `${ear} ear`);
+        }
+    }
+    
+    if (statusElement) {
+        statusElement.textContent = message;
+    }
+}
+
+function showToneIndicator(isPlaying, toneInfo = {}) {
+    const indicator = document.getElementById('tone-indicator');
+    const icon = indicator?.querySelector('.indicator-icon');
+    const status = document.getElementById('response-status');
+    
+    if (isPlaying) {
+        if (icon) icon.textContent = '🔊';
+        if (status) {
+            const freq = toneInfo.frequency ? `${toneInfo.frequency} Hz` : '';
+            const level = toneInfo.level ? `${toneInfo.level} dB HL` : '';
+            status.textContent = `Playing tone: ${freq} ${level}`.trim();
+        }
+        indicator?.classList.add('playing');
+    } else {
+        if (icon) icon.textContent = '🔊';
+        if (status) status.textContent = 'Did you hear the tone?';
+        indicator?.classList.remove('playing');
+    }
+}
+
+function enableResponseButtons(enable = true) {
+    const yesBtn = document.getElementById('yes-btn');
+    const noBtn = document.getElementById('no-btn');
+    
+    if (yesBtn) yesBtn.disabled = !enable;
+    if (noBtn) noBtn.disabled = !enable;
+    
+    // Update button appearance for accessibility
+    if (enable) {
+        yesBtn?.classList.add('btn-ready');
+        noBtn?.classList.add('btn-ready');
+    } else {
+        yesBtn?.classList.remove('btn-ready');
+        noBtn?.classList.remove('btn-ready');
+    }
+}
+
+function pauseTest() {
+    // Implementation for pause functionality
+    const pauseBtn = document.getElementById('pause-test');
+    if (pauseBtn) {
+        const isPaused = pauseBtn.textContent.includes('Resume');
+        
+        if (isPaused) {
+            pauseBtn.innerHTML = '<span aria-hidden="true">⏸️</span> Pause';
+            updateTestGuidance('testing', 'Test resumed. Listen for the next tone...');
+        } else {
+            pauseBtn.innerHTML = '<span aria-hidden="true">▶️</span> Resume';
+            updateTestGuidance('testing', 'Test paused. Click Resume when ready to continue.');
+        }
+    }
+}
+
+/* -----------------------
+   Onboarding Assistant
+   ----------------------- */
+function initializeOnboardingAssistant() {
+    // Step navigation
+    const stepButtons = document.querySelectorAll('.step-btn');
+    stepButtons.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const step = e.target.dataset.step;
+            switchAssistantStep(step);
+        });
+    });
+    
+    // Toggle assistant visibility
+    const toggleBtn = document.getElementById('toggle-assistant');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', toggleAssistantVisibility);
+    }
+    
+    // FAQ toggles
+    const faqQuestions = document.querySelectorAll('.faq-question');
+    faqQuestions.forEach(question => {
+        question.addEventListener('click', toggleFAQItem);
+    });
+    
+    // Readiness checklist - checkboxes remain for user reference but no longer control button state
+    
+    // Assistant start button removed for cleaner interface
+    
+    // Initialize with first step
+    switchAssistantStep('purpose');
+}
+
+function switchAssistantStep(stepName) {
+    // Update step buttons
+    document.querySelectorAll('.step-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.step === stepName);
+    });
+    
+    // Update step panels
+    document.querySelectorAll('.step-panel').forEach(panel => {
+        panel.classList.toggle('active', panel.id === `step-${stepName}`);
+    });
+    
+    // Add animation
+    const activePanel = document.getElementById(`step-${stepName}`);
+    if (activePanel) {
+        activePanel.style.animation = 'none';
+        activePanel.offsetHeight; // Trigger reflow
+        activePanel.style.animation = 'fadeInUp 0.3s ease-out';
+    }
+}
+
+function toggleAssistantVisibility() {
+    const assistant = document.getElementById('onboarding-assistant');
+    const toggleBtn = document.getElementById('toggle-assistant');
+    const content = document.getElementById('assistant-content');
+    
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        toggleBtn.textContent = 'Hide Guide';
+        assistant.classList.remove('collapsed');
+    } else {
+        content.style.display = 'none';
+        toggleBtn.textContent = 'Show Guide';
+        assistant.classList.add('collapsed');
+    }
+}
+
+function toggleFAQItem(e) {
+    const question = e.target;
+    const faqItem = question.closest('.faq-item');
+    const answer = faqItem.querySelector('.faq-answer');
+    const toggle = question.querySelector('.faq-toggle');
+    
+    const isOpen = answer.style.display === 'block';
+    
+    if (isOpen) {
+        answer.style.display = 'none';
+        toggle.textContent = '+';
+        faqItem.classList.remove('open');
+    } else {
+        answer.style.display = 'block';
+        toggle.textContent = '−';
+        faqItem.classList.add('open');
+    }
+}
+
+// Removed updateReadinessStatus function - no longer needed without the assistant start button
+
+// Removed showOnboardingTip function for cleaner professional interface
+
+function getOnboardingProgress() {
+    const checkboxes = document.querySelectorAll('.readiness-checkbox');
+    const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+    return {
+        completed: checkedCount,
+        total: checkboxes.length,
+        percentage: Math.round((checkedCount / checkboxes.length) * 100)
+    };
+}
+
+/* -----------------------
+   Interaural Difference Analysis
+   ----------------------- */
+function displayInterauralDifferences(session) {
+    if (!session.interaural_differences || !session.interaural_differences.has_analysis) {
+        return '<p class="muted small">No interaural analysis available</p>';
+    }
+    
+    const perFreq = session.interaural_differences.per_frequency;
+    const stats = session.interaural_differences.summary_stats;
+    
+    if (!perFreq || Object.keys(perFreq).length === 0) {
+        return '<p class="muted small">Insufficient data for interaural analysis</p>';
+    }
+    
+    // Sort frequencies for display
+    const frequencies = Object.keys(perFreq).map(f => parseInt(f)).sort((a, b) => a - b);
+    
+    let html = `
+        <div class="interaural-analysis">
+            <h6>Interaural Threshold Differences</h6>
+            <div class="difference-grid">
+                <div class="diff-headers">
+                    <span>Frequency</span>
+                    <span>Left</span>
+                    <span>Right</span>
+                    <span>Difference</span>
+                </div>
+    `;
+    
+    frequencies.forEach(freq => {
+        const data = perFreq[freq];
+        const absDiff = data.absolute_difference;
+        const isSignificant = absDiff >= 15; // Highlight differences ≥15 dB
+        
+        html += `
+            <div class="diff-row ${isSignificant ? 'significant-difference' : ''}">
+                <span class="freq-label">${freq} Hz</span>
+                <span class="left-val">${data.left_threshold.toFixed(1)}</span>
+                <span class="right-val">${data.right_threshold.toFixed(1)}</span>
+                <span class="diff-val ${isSignificant ? 'significant' : ''}">${absDiff.toFixed(1)} dB</span>
+            </div>
+        `;
+    });
+    
+    html += `
+            </div>
+            <div class="difference-summary">
+                <div class="summary-stats">
+                    <span>Max: ${stats.max_absolute_difference.toFixed(1)} dB</span>
+                    <span>Mean: ${stats.mean_absolute_difference.toFixed(1)} dB</span>
+                    <span>Frequencies: ${stats.frequencies_compared}</span>
+                </div>
+                <p class="analysis-note">
+                    <small>Objective measurements only. Values ≥15 dB highlighted for reference.</small>
+                </p>
+            </div>
+        </div>
+    `;
+    
+    return html;
+}
+
+async function analyzeCurrentThresholds(thresholds) {
+    /*
+     * Analyze interaural differences for current test results
+     */
+    if (!thresholds || !thresholds.left || !thresholds.right) {
+        return null;
+    }
+    
+    try {
+        const response = await fetchWithTimeout('/user/interaural-analysis', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                thresholds: thresholds,
+                user_id: currentUser.isAuthenticated ? currentUser.id : null
+            }),
+            timeout: 5000
+        });
+        
+        if (!response.ok) {
+            throw new Error('Analysis request failed');
+        }
+        
+        const analysis = await response.json();
+        return analysis;
+        
+    } catch (error) {
+        console.error('Interaural analysis error:', error);
+        return null;
+    }
+}
+
+function createInterauralDifferenceChart(analysisData, containerId) {
+    /*
+     * Create a Chart.js visualization of interaural differences
+     */
+    const container = document.getElementById(containerId);
+    if (!container || !analysisData) return;
+    
+    const canvas = document.createElement('canvas');
+    canvas.id = `${containerId}-chart`;
+    container.innerHTML = '';
+    container.appendChild(canvas);
+    
+    const ctx = canvas.getContext('2d');
+    const perFreq = analysisData.per_frequency_differences || analysisData.per_frequency;
+    
+    if (!perFreq) return;
+    
+    // Prepare data
+    const frequencies = Object.keys(perFreq).map(f => parseInt(f)).sort((a, b) => a - b);
+    const differences = frequencies.map(freq => perFreq[freq].absolute_difference);
+    const signedDifferences = frequencies.map(freq => perFreq[freq].signed_difference);
+    
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: frequencies.map(f => `${f} Hz`),
+            datasets: [
+                {
+                    label: 'Absolute Difference (dB)',
+                    data: differences,
+                    backgroundColor: differences.map(d => d >= 15 ? 'rgba(245, 158, 11, 0.7)' : 'rgba(59, 130, 246, 0.7)'),
+                    borderColor: differences.map(d => d >= 15 ? '#f59e0b' : '#3b82f6'),
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Interaural Threshold Differences by Frequency'
+                },
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        afterLabel: function(context) {
+                            const freq = frequencies[context.dataIndex];
+                            const signed = signedDifferences[context.dataIndex];
+                            const direction = signed > 0 ? 'Left ear worse' : signed < 0 ? 'Right ear worse' : 'Equal';
+                            return `Signed difference: ${signed.toFixed(1)} dB (${direction})`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    title: { display: true, text: 'Frequency' }
+                },
+                y: {
+                    title: { display: true, text: 'Threshold Difference (dB)' },
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return value + ' dB';
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+/* -----------------------
+   Feedback System
+   ----------------------- */
+
+let currentSessionId = null;
+let feedbackRatings = {
+    test_clarity: null,
+    audio_comfort: null,
+    ease_of_use: null
+};
+
+function showFeedbackSection(sessionId) {
+    currentSessionId = sessionId;
+    const feedbackSection = document.getElementById('feedback-section');
+    if (feedbackSection) {
+        feedbackSection.classList.remove('hidden');
+        feedbackSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    
+    // Initialize feedback form
+    initializeFeedbackForm();
+}
+
+function initializeFeedbackForm() {
+    // Reset ratings
+    feedbackRatings = {
+        test_clarity: null,
+        audio_comfort: null,
+        ease_of_use: null
+    };
+    
+    // Initialize star ratings
+    const starRatings = document.querySelectorAll('.star-rating');
+    starRatings.forEach(rating => {
+        const stars = rating.querySelectorAll('.star');
+        const ratingType = rating.dataset.rating;
+        
+        stars.forEach((star, index) => {
+            star.classList.remove('active');
+            
+            // Click handler
+            star.addEventListener('click', () => {
+                const value = parseInt(star.dataset.value);
+                feedbackRatings[ratingType] = value;
+                
+                // Update visual state
+                stars.forEach((s, i) => {
+                    s.classList.toggle('active', i < value);
+                });
+            });
+            
+            // Hover effects
+            star.addEventListener('mouseenter', () => {
+                const value = parseInt(star.dataset.value);
+                stars.forEach((s, i) => {
+                    s.classList.toggle('hover', i < value);
+                });
+            });
+            
+            star.addEventListener('mouseleave', () => {
+                stars.forEach(s => s.classList.remove('hover'));
+            });
+        });
+    });
+    
+    // Character counter for suggestions
+    const suggestionsInput = document.getElementById('suggestions-input');
+    const charCounter = document.getElementById('char-counter');
+    
+    if (suggestionsInput && charCounter) {
+        suggestionsInput.addEventListener('input', () => {
+            const length = suggestionsInput.value.length;
+            charCounter.textContent = length;
+            
+            // Visual feedback for character limit
+            if (length > 900) {
+                charCounter.style.color = '#e74c3c';
+            } else if (length > 800) {
+                charCounter.style.color = '#f39c12';
+            } else {
+                charCounter.style.color = 'var(--text-muted)';
+            }
+        });
+    }
+    
+    // Form submission
+    const feedbackForm = document.getElementById('feedback-form');
+    if (feedbackForm) {
+        feedbackForm.addEventListener('submit', handleFeedbackSubmission);
+    }
+    
+    // Skip button
+    const skipButton = document.getElementById('skip-feedback-btn');
+    if (skipButton) {
+        skipButton.addEventListener('click', hideFeedbackSection);
+    }
+}
+
+async function handleFeedbackSubmission(event) {
+    event.preventDefault();
+    
+    const form = event.target;
+    const submitButton = document.getElementById('submit-feedback-btn');
+    const suggestionsText = document.getElementById('suggestions-input').value.trim();
+    
+    // Show loading state
+    form.classList.add('submitting');
+    if (submitButton) {
+        submitButton.textContent = 'Submitting...';
+        submitButton.disabled = true;
+    }
+    
+    try {
+        // Prepare feedback data
+        const feedbackData = {
+            session_id: currentSessionId,
+            user_id: userId || null, // Allow anonymous feedback for guests
+            test_clarity_rating: feedbackRatings.test_clarity,
+            audio_comfort_rating: feedbackRatings.audio_comfort,
+            ease_of_use_rating: feedbackRatings.ease_of_use,
+            suggestions_text: suggestionsText || null
+        };
+        
+        // Submit feedback
+        const response = await fetchWithTimeout('/submit_feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(feedbackData),
+            timeout: 10000
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            showFeedbackSuccess();
+            logDebug('Feedback submitted successfully');
+        } else {
+            throw new Error('Failed to submit feedback');
+        }
+        
+    } catch (error) {
+        console.error('Feedback submission error:', error);
+        
+        // Show error state
+        form.classList.remove('submitting');
+        if (submitButton) {
+            submitButton.textContent = 'Try Again';
+            submitButton.disabled = false;
+        }
+        
+        // Show user-friendly error message
+        showNotification('Failed to submit feedback. Please try again.', 'error');
+    }
+}
+
+function showFeedbackSuccess() {
+    const form = document.getElementById('feedback-form');
+    const successDiv = document.getElementById('feedback-success');
+    
+    if (form && successDiv) {
+        form.classList.add('submitted');
+        successDiv.classList.remove('hidden');
+        successDiv.classList.add('show');
+        
+        // Auto-hide feedback section after success
+        setTimeout(() => {
+            hideFeedbackSection();
+        }, 3000);
+    }
+}
+
+function hideFeedbackSection() {
+    const feedbackSection = document.getElementById('feedback-section');
+    if (feedbackSection) {
+        feedbackSection.classList.add('hidden');
+    }
+    
+    // Reset form state
+    const form = document.getElementById('feedback-form');
+    const successDiv = document.getElementById('feedback-success');
+    
+    if (form) {
+        form.classList.remove('submitting', 'submitted');
+        form.reset();
+    }
+    
+    if (successDiv) {
+        successDiv.classList.remove('show');
+        successDiv.classList.add('hidden');
+    }
+    
+    // Reset submit button
+    const submitButton = document.getElementById('submit-feedback-btn');
+    if (submitButton) {
+        submitButton.textContent = 'Submit Feedback';
+        submitButton.disabled = false;
+    }
+    
+    // Reset ratings
+    feedbackRatings = {
+        test_clarity: null,
+        audio_comfort: null,
+        ease_of_use: null
+    };
+    
+    // Reset star visuals
+    const stars = document.querySelectorAll('.star');
+    stars.forEach(star => {
+        star.classList.remove('active', 'hover');
+    });
+    
+    // Reset character counter
+    const charCounter = document.getElementById('char-counter');
+    if (charCounter) {
+        charCounter.textContent = '0';
+        charCounter.style.color = 'var(--text-muted)';
+    }
+}
+
+function showNotification(message, type = 'info') {
+    // Simple notification system
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 1rem 1.5rem;
+        background: ${type === 'error' ? '#e74c3c' : '#2ecc71'};
+        color: white;
+        border-radius: 6px;
+        z-index: 10000;
+        animation: slideInRight 0.3s ease-out;
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Auto-remove after 3 seconds
+    setTimeout(() => {
+        notification.style.animation = 'slideOutRight 0.3s ease-in';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
+    }, 3000);
+}
+
+// Add CSS animations for notifications
+const notificationStyles = document.createElement('style');
+notificationStyles.textContent = `
+    @keyframes slideInRight {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOutRight {
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(100%); opacity: 0; }
+    }
+`;
+document.head.appendChild(notificationStyles);

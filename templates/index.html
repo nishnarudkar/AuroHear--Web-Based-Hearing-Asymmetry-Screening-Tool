@@ -101,6 +101,41 @@
                     <div style="margin-top: 8px;">
                         <button id="bypass-btn" class="btn ghost small" style="opacity: 0.5; font-size: 0.8rem;">Or continue as Guest (Demo)</button>
                     </div>
+                    
+                    <!-- Team Members Section -->
+                    <div class="team-section" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+                        <h4 class="team-title">Project Team</h4>
+                        <div class="team-members">
+                            <a href="https://github.com/nishnarudkar" 
+                               target="_blank" 
+                               rel="noopener noreferrer" 
+                               class="team-member-link"
+                               aria-label="Nishant Narudkar's GitHub profile">
+                                Nishant Narudkar
+                            </a>
+                            <a href="https://github.com/Metzo64" 
+                               target="_blank" 
+                               rel="noopener noreferrer" 
+                               class="team-member-link"
+                               aria-label="Maitreya Pawar's GitHub profile">
+                                Maitreya Pawar
+                            </a>
+                            <a href="https://github.com/Vatsal211005" 
+                               target="_blank" 
+                               rel="noopener noreferrer" 
+                               class="team-member-link"
+                               aria-label="Vatsal Parmar's GitHub profile">
+                                Vatsal Parmar
+                            </a>
+                            <a href="https://github.com/Aamir-Sarang31" 
+                               target="_blank" 
+                               rel="noopener noreferrer" 
+                               class="team-member-link"
+                               aria-label="Aamir Sarang's GitHub profile">
+                                Aamir Sarang
+                            </a>
+                        </div>
+                    </div>
                 </footer>
             </div>
         </section>
@@ -110,6 +145,185 @@
             <div class="panel-inner center">
                 <h2 class="title">Welcome to AuroHear</h2>
                 <p class="lead">A fast, professional screening that highlights hearing asymmetry.</p>
+                
+                <!-- Onboarding Assistant -->
+                <div id="onboarding-assistant" class="onboarding-assistant">
+                    <div class="assistant-header">
+                        <div class="assistant-icon">🎧</div>
+                        <h3>Getting Started Guide</h3>
+                        <button id="toggle-assistant" class="btn ghost tiny">Hide Guide</button>
+                    </div>
+                    
+                    <div id="assistant-content" class="assistant-content">
+                        <!-- Step Navigation -->
+                        <div class="step-navigation">
+                            <button class="step-btn active" data-step="purpose">Purpose</button>
+                            <button class="step-btn" data-step="setup">Setup</button>
+                            <button class="step-btn" data-step="faq">FAQ</button>
+                            <button class="step-btn" data-step="prepare">Prepare</button>
+                        </div>
+                        
+                        <!-- Step Content -->
+                        <div class="step-content">
+                            <!-- Purpose Step -->
+                            <div id="step-purpose" class="step-panel active">
+                                <h4>What is AuroHear?</h4>
+                                <div class="step-info">
+                                    <p>AuroHear is a <strong>screening tool</strong> that measures hearing thresholds to detect potential differences between your ears.</p>
+                                    
+                                    <div class="info-grid">
+                                        <div class="info-item">
+                                            <span class="info-icon">🔍</span>
+                                            <div>
+                                                <strong>What it does:</strong>
+                                                <p>Measures hearing sensitivity at different frequencies</p>
+                                            </div>
+                                        </div>
+                                        <div class="info-item">
+                                            <span class="info-icon">⚠️</span>
+                                            <div>
+                                                <strong>What it's NOT:</strong>
+                                                <p>Not a medical diagnosis or replacement for professional evaluation</p>
+                                            </div>
+                                        </div>
+                                        <div class="info-item">
+                                            <span class="info-icon">⏱️</span>
+                                            <div>
+                                                <strong>Duration:</strong>
+                                                <p>Approximately 5-10 minutes for complete screening</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="important-note">
+                                        <strong>Important:</strong> This is a preliminary screening only. 
+                                        Consult a licensed audiologist for comprehensive hearing evaluation.
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Setup Step -->
+                            <div id="step-setup" class="step-panel">
+                                <h4>Environment & Equipment Setup</h4>
+                                <div class="step-info">
+                                    <div class="setup-checklist">
+                                        <div class="checklist-item">
+                                            <span class="check-icon">🎧</span>
+                                            <div>
+                                                <strong>Headphones Required</strong>
+                                                <p>Use good quality over-ear or on-ear headphones. Earbuds may not provide accurate results.</p>
+                                            </div>
+                                        </div>
+                                        <div class="checklist-item">
+                                            <span class="check-icon">🔇</span>
+                                            <div>
+                                                <strong>Quiet Environment</strong>
+                                                <p>Find a quiet room with minimal background noise. Close windows and doors.</p>
+                                            </div>
+                                        </div>
+                                        <div class="checklist-item">
+                                            <span class="check-icon">💺</span>
+                                            <div>
+                                                <strong>Comfortable Position</strong>
+                                                <p>Sit comfortably where you can focus without distractions for 5-10 minutes.</p>
+                                            </div>
+                                        </div>
+                                        <div class="checklist-item">
+                                            <span class="check-icon">🔊</span>
+                                            <div>
+                                                <strong>Audio Check</strong>
+                                                <p>Ensure your device volume is at a moderate level. You'll calibrate during the test.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- FAQ Step -->
+                            <div id="step-faq" class="step-panel">
+                                <h4>Frequently Asked Questions</h4>
+                                <div class="step-info">
+                                    <div class="faq-list">
+                                        <div class="faq-item">
+                                            <button class="faq-question">Is this test accurate? <span class="faq-toggle">+</span></button>
+                                            <div class="faq-answer">
+                                                <p>AuroHear provides reliable screening measurements when used properly. However, it's not as precise as clinical audiometry performed by professionals. Results should be interpreted as preliminary screening data.</p>
+                                            </div>
+                                        </div>
+                                        <div class="faq-item">
+                                            <button class="faq-question">What if I can't hear some tones? <span class="faq-toggle">+</span></button>
+                                            <div class="faq-answer">
+                                                <p>This is normal! The test is designed to find your hearing threshold - the softest level you can detect. Not hearing very quiet tones is expected and part of the measurement process.</p>
+                                            </div>
+                                        </div>
+                                        <div class="faq-item">
+                                            <button class="faq-question">How should I respond during the test? <span class="faq-toggle">+</span></button>
+                                            <div class="faq-answer">
+                                                <p>Click "YES" if you hear any tone, even if it's very faint. Click "NO" if you hear nothing at all. Don't worry about being perfect - the test adapts to your responses.</p>
+                                            </div>
+                                        </div>
+                                        <div class="faq-item">
+                                            <button class="faq-question">What do the results mean? <span class="faq-toggle">+</span></button>
+                                            <div class="faq-answer">
+                                                <p>Results show your hearing thresholds and any differences between ears. The system will highlight significant asymmetries, but remember this is screening data that requires professional interpretation.</p>
+                                            </div>
+                                        </div>
+                                        <div class="faq-item">
+                                            <button class="faq-question">Is my data private? <span class="faq-toggle">+</span></button>
+                                            <div class="faq-answer">
+                                                <p>Yes! Guest users' data is not stored. Authenticated users can save results to track changes over time, but all data remains private and secure.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Prepare Step -->
+                            <div id="step-prepare" class="step-panel">
+                                <h4>Ready to Begin?</h4>
+                                <div class="step-info">
+                                    <div class="readiness-check">
+                                        <h5>Before you start, make sure you have:</h5>
+                                        <div class="check-grid">
+                                            <label class="check-item">
+                                                <input type="checkbox" class="readiness-checkbox">
+                                                <span class="checkmark">✓</span>
+                                                <span>Good quality headphones connected</span>
+                                            </label>
+                                            <label class="check-item">
+                                                <input type="checkbox" class="readiness-checkbox">
+                                                <span class="checkmark">✓</span>
+                                                <span>Quiet environment secured</span>
+                                            </label>
+                                            <label class="check-item">
+                                                <input type="checkbox" class="readiness-checkbox">
+                                                <span class="checkmark">✓</span>
+                                                <span>5-10 minutes of uninterrupted time</span>
+                                            </label>
+                                            <label class="check-item">
+                                                <input type="checkbox" class="readiness-checkbox">
+                                                <span class="checkmark">✓</span>
+                                                <span>Comfortable seating position</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="confidence-booster">
+                                        <div class="confidence-message">
+                                            <span class="confidence-icon">😌</span>
+                                            <div>
+                                                <strong>Relax and take your time</strong>
+                                                <p>There are no wrong answers. The test adapts to your hearing, so just respond honestly to what you hear.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 
                 <!-- Profile info for authenticated users -->
                 <div id="user-profile-info" class="auth-only glass-card narrow" style="display: none; margin: 1rem 0;">
@@ -227,28 +441,85 @@
         <!-- — TESTING SCREEN — (this is where ears show) -->
         <section id="testing-screen" class="panel hidden">
             <div class="panel-inner">
-                <div class="top-row">
-                    <progress id="progress-bar" value="0" max="100"></progress>
-                    <div class="progress-label-wrap">
-                        <span id="progress-label">0%</span>
+                <!-- Contextual Guidance Header -->
+                <div id="test-guidance" class="test-guidance" role="banner" aria-live="polite">
+                    <div class="guidance-content">
+                        <div class="guidance-icon" aria-hidden="true">🎯</div>
+                        <div class="guidance-text">
+                            <h3 id="guidance-title" class="guidance-title">Getting Ready</h3>
+                            <p id="guidance-message" class="guidance-message">Preparing your hearing test...</p>
+                        </div>
+                        <button id="guidance-help" class="btn ghost tiny" aria-label="Show help information">
+                            <span aria-hidden="true">?</span>
+                        </button>
                     </div>
                 </div>
 
+                <!-- Progress Section -->
+                <div class="progress-section" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                    <div class="progress-header">
+                        <span id="progress-text" class="progress-text">Starting test...</span>
+                        <span id="progress-label" class="progress-percentage">0%</span>
+                    </div>
+                    <div class="progress-container">
+                        <progress id="progress-bar" value="0" max="100" aria-describedby="progress-text"></progress>
+                        <div class="progress-phases">
+                            <span class="phase-marker" data-phase="0">Start</span>
+                            <span class="phase-marker" data-phase="25">25%</span>
+                            <span class="phase-marker" data-phase="50">50%</span>
+                            <span class="phase-marker" data-phase="75">75%</span>
+                            <span class="phase-marker" data-phase="100">Done</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Test Stage -->
                 <div class="test-stage">
+                    <!-- Current Test Information -->
+                    <div id="test-context" class="test-context" role="status" aria-live="polite">
+                        <div class="context-item">
+                            <span class="context-label">Testing:</span>
+                            <span id="current-ear" class="context-value">Preparing...</span>
+                        </div>
+                        <div class="context-item">
+                            <span class="context-label">Frequency:</span>
+                            <span id="current-frequency" class="context-value">--</span>
+                        </div>
+                        <div class="context-item">
+                            <span class="context-label">Level:</span>
+                            <span id="current-level" class="context-value">--</span>
+                        </div>
+                    </div>
+
                     <div class="ears-wrap">
                         <!-- Left ear icon -->
-                        <div id="left-ear-icon" class="ear-card ear-left ear-inactive" aria-hidden="false">
-                            <div class="ear-visual">👂</div>
-                            <div class="ear-caption">Left</div>
+                        <div id="left-ear-icon" class="ear-card ear-left ear-inactive" role="img" aria-label="Left ear">
+                            <div class="ear-visual" aria-hidden="true">👂</div>
+                            <div class="ear-caption">Left Ear</div>
+                            <div class="ear-status" id="left-ear-status" aria-live="polite"></div>
                         </div>
 
                         <!-- central response / info -->
                         <div class="center-response">
-                            <div id="status-label" class="muted small">Testing</div>
-                            <div id="test-info" class="muted small">Test info</div>
+                            <!-- Phase Instructions -->
+                            <div id="phase-instructions" class="phase-instructions" role="region" aria-labelledby="instruction-title">
+                                <h4 id="instruction-title" class="instruction-title">Listen Carefully</h4>
+                                <p id="instruction-text" class="instruction-text">
+                                    A tone will play. Click "YES" if you hear it, "NO" if you don't.
+                                </p>
+                                <div id="instruction-tips" class="instruction-tips">
+                                    <div class="tip-item">
+                                        <span class="tip-icon" aria-hidden="true">💡</span>
+                                        <span class="tip-text">Even very faint sounds count as "heard"</span>
+                                    </div>
+                                </div>
+                            </div>
 
-                            <div id="response-frame" class="response-frame">
-                                <p id="response-status" class="muted">Preparing test... ⚙️</p>
+                            <div id="response-frame" class="response-frame" role="main">
+                                <div id="tone-indicator" class="tone-indicator" aria-live="assertive">
+                                    <div class="indicator-icon" aria-hidden="true">🔊</div>
+                                    <p id="response-status" class="response-status">Preparing test...</p>
+                                </div>
                                 <div id="response-buttons" class="response-buttons">
                                     <button id="yes-btn" class="btn success">YES — Heard</button>
                                     <button id="no-btn" class="btn danger">NO — Didn’t hear</button>
@@ -257,15 +528,48 @@
                         </div>
 
                         <!-- Right ear icon -->
-                        <div id="right-ear-icon" class="ear-card ear-right ear-inactive" aria-hidden="false">
-                            <div class="ear-visual">👂</div>
-                            <div class="ear-caption">Right</div>
+                        <div id="right-ear-icon" class="ear-card ear-right ear-inactive" role="img" aria-label="Right ear">
+                            <div class="ear-visual" aria-hidden="true">👂</div>
+                            <div class="ear-caption">Right Ear</div>
+                            <div class="ear-status" id="right-ear-status" aria-live="polite"></div>
                         </div>
                     </div>
                 </div>
 
-                <div class="cta-row right">
-                    <button id="exit-test-early" class="btn ghost">Exit</button>
+                <!-- Help Panel (Initially Hidden) -->
+                <div id="help-panel" class="help-panel hidden" role="dialog" aria-labelledby="help-title" aria-modal="false">
+                    <div class="help-content">
+                        <h4 id="help-title">Quick Help</h4>
+                        <div class="help-sections">
+                            <div class="help-section">
+                                <h5>How to Respond</h5>
+                                <ul>
+                                    <li><strong>YES:</strong> Click if you hear any sound, even if very quiet</li>
+                                    <li><strong>NO:</strong> Click if you hear absolutely nothing</li>
+                                    <li><strong>Unsure:</strong> If you think you might have heard something, click YES</li>
+                                </ul>
+                            </div>
+                            <div class="help-section">
+                                <h5>What to Expect</h5>
+                                <ul>
+                                    <li>Tones will get quieter when you hear them</li>
+                                    <li>Tones will get louder when you don't hear them</li>
+                                    <li>This is normal - the test finds your hearing threshold</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <button id="close-help" class="btn ghost small">Close Help</button>
+                    </div>
+                </div>
+
+                <!-- Test Controls -->
+                <div class="test-controls">
+                    <button id="pause-test" class="btn ghost small" aria-label="Pause test">
+                        <span aria-hidden="true">⏸️</span> Pause
+                    </button>
+                    <button id="exit-test-early" class="btn ghost small" aria-label="Exit test early">
+                        <span aria-hidden="true">🚪</span> Exit
+                    </button>
                 </div>
             </div>
         </section>
@@ -407,6 +711,85 @@
                     <button id="download-pdf-btn" class="btn primary">Download PDF</button>
                     <button id="try-again-btn" class="btn primary">Try Again</button>
                     <button id="exit-btn" class="btn danger">Exit</button>
+                </div>
+
+                <!-- Post-Test Feedback Section -->
+                <div id="feedback-section" class="feedback-section hidden">
+                    <div class="glass-card">
+                        <div class="feedback-header">
+                            <h3>Help Us Improve</h3>
+                            <p class="muted">Your feedback helps us enhance the testing experience (optional)</p>
+                        </div>
+
+                        <form id="feedback-form" class="feedback-form">
+                            <div class="rating-grid">
+                                <div class="rating-item">
+                                    <label>Test clarity - Were the instructions clear?</label>
+                                    <div class="star-rating" data-rating="test_clarity">
+                                        <span class="star" data-value="1">★</span>
+                                        <span class="star" data-value="2">★</span>
+                                        <span class="star" data-value="3">★</span>
+                                        <span class="star" data-value="4">★</span>
+                                        <span class="star" data-value="5">★</span>
+                                    </div>
+                                </div>
+
+                                <div class="rating-item">
+                                    <label>Audio comfort - Was the audio comfortable?</label>
+                                    <div class="star-rating" data-rating="audio_comfort">
+                                        <span class="star" data-value="1">★</span>
+                                        <span class="star" data-value="2">★</span>
+                                        <span class="star" data-value="3">★</span>
+                                        <span class="star" data-value="4">★</span>
+                                        <span class="star" data-value="5">★</span>
+                                    </div>
+                                </div>
+
+                                <div class="rating-item">
+                                    <label>Ease of use - How easy was the test to complete?</label>
+                                    <div class="star-rating" data-rating="ease_of_use">
+                                        <span class="star" data-value="1">★</span>
+                                        <span class="star" data-value="2">★</span>
+                                        <span class="star" data-value="3">★</span>
+                                        <span class="star" data-value="4">★</span>
+                                        <span class="star" data-value="5">★</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="feedback-text">
+                                <label for="suggestions-input">Any suggestions or issues you faced? (optional)</label>
+                                <textarea 
+                                    id="suggestions-input" 
+                                    placeholder="Share any technical issues, suggestions for improvement, or general comments about the testing experience..."
+                                    maxlength="1000"
+                                    rows="3"></textarea>
+                                <div class="char-count">
+                                    <span id="char-counter">0</span>/1000 characters
+                                </div>
+                            </div>
+
+                            <div class="feedback-privacy">
+                                <p class="privacy-note">
+                                    <span class="privacy-icon">🔒</span>
+                                    Your feedback is used only to improve the platform. No medical or personal information is collected.
+                                </p>
+                            </div>
+
+                            <div class="feedback-actions">
+                                <button type="submit" id="submit-feedback-btn" class="btn success">Submit Feedback</button>
+                                <button type="button" id="skip-feedback-btn" class="btn ghost">Skip</button>
+                            </div>
+                        </form>
+
+                        <div id="feedback-success" class="feedback-success hidden">
+                            <div class="success-message">
+                                <span class="success-icon">✓</span>
+                                <h4>Thank you for your feedback!</h4>
+                                <p>Your input helps us improve the testing experience for everyone.</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
