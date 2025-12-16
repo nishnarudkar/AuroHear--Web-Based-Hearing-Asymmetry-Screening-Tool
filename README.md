@@ -13,52 +13,52 @@
 
 </div>
 
-## 🎯 Overview
+## Overview
 
 AuroHear is a professional-grade hearing asymmetry screening tool that provides preliminary audiometric testing at standard frequencies (250-5000 Hz) using adaptive algorithms. The platform identifies significant interaural differences (≥20 dB) that may indicate unilateral hearing loss, making it valuable for healthcare professionals, researchers, and individuals seeking hearing awareness.
 
-> **⚠️ Important**: This is a screening tool only - not a diagnostic instrument. All results require professional audiological interpretation for clinical decisions.
+> **Important**: This is a screening tool only - not a diagnostic instrument. All results require professional audiological interpretation for clinical decisions.
 
-## ✨ Core Features
+## Core Features
 
-### 🔬 **Advanced Audiometry**
+### **Advanced Audiometry**
 - **Adaptive Threshold Testing**: Professional algorithms with 12-trial maximum per frequency
 - **Standard Frequencies**: Complete testing at 250, 500, 1000, 2000, 4000, and 5000 Hz
 - **Precise Audio Control**: Server-side WAV generation with accurate channel routing
 - **Real-time Processing**: NumPy + SciPy for high-quality tone generation
 
-### 👤 **User Management & Privacy**
+### **User Management & Privacy**
 - **Dual Authentication**: Supabase Auth with secure guest mode fallback
 - **Privacy-First Design**: Guest sessions never stored, authenticated users control data
 - **Profile Management**: Comprehensive user profiles with demographic tracking
 - **Session History**: Complete test history for authenticated users only
 
-### 📊 **Professional Analytics**
+### **Professional Analytics**
 - **Interactive Audiograms**: Chart.js visualizations with frequency-specific thresholds
 - **Interaural Analysis**: Detailed between-ear difference calculations
 - **Trend Analysis**: Multi-session pattern recognition with variance metrics
 - **Educational Summaries**: Neutral, non-diagnostic measurement insights
 
-### 📈 **Advanced Reporting**
+### **Advanced Reporting**
 - **Professional Reports**: Clinical-style PDF/PNG exports with patient demographics
 - **Session Comparison**: Multi-session trend analysis and overlay charts
 - **Statistical Insights**: Variance analysis, trend detection, and pattern classification
 - **Export Options**: Multiple format support for clinical documentation
 
-### 💬 **User Feedback System**
+### **User Feedback System**
 - **Post-Test Feedback**: Optional feedback collection after test completion
 - **Multi-Dimensional Ratings**: Test clarity, audio comfort, and ease of use (1-5 scale)
 - **Improvement Suggestions**: Optional text field for user suggestions and issues
 - **Privacy-First Design**: Anonymous feedback for guests, no medical data collection
 - **Platform Analytics**: Aggregated feedback statistics for continuous improvement
 
-### 🎨 **Modern Interface**
+### **Modern Interface**
 - **Glass Morphism Design**: Professional medical interface with blue/red ear coding
 - **Responsive Layout**: Mobile-first design optimized for all devices
 - **Accessibility**: ARIA labels, keyboard navigation, and screen reader support
 - **Progressive Enhancement**: Graceful degradation for older browsers
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 - **Python 3.10+** with pip
@@ -117,7 +117,7 @@ AuroHear is a professional-grade hearing asymmetry screening tool that provides 
    
    Visit `http://127.0.0.1:5000` to access the application.
 
-## 🔧 Configuration
+## Configuration
 
 ### Environment Variables
 | Variable | Description | Required | Default |
@@ -145,7 +145,7 @@ The application uses two main tables:
 - **Channels**: Stereo with precise left/right routing
 - **Fade**: 10ms fade-in/out to prevent audio artifacts
 
-## 🚢 Deployment
+## Deployment
 
 ### Docker Deployment
 ```bash
@@ -273,7 +273,7 @@ CREATE TABLE test_feedback (
 | `/user/trend-analysis` | GET | Analyze measurement trends | Authenticated |
 | `/user/interaural-analysis` | POST | Compute ear differences | Authenticated |
 
-## 📊 Usage Guide
+## Usage Guide
 
 ### Getting Started
 1. **Access Application**: Navigate to the deployed URL or run locally
@@ -314,7 +314,7 @@ CREATE TABLE test_feedback (
 - **Feedback Privacy**: Anonymous feedback option, no medical data collection
 - **GDPR Compliance**: Right to access, modify, and delete personal data
 
-## ⚠️ Medical Disclaimers & Limitations
+## Medical Disclaimers & Limitations
 
 ### Screening Tool Notice
 > **This is a preliminary screening tool only - NOT a diagnostic instrument**
@@ -429,7 +429,7 @@ docker run -p 10000:10000 --env-file .env aurohear
 - **Database Performance**: <100ms query response time
 - **Concurrent Users**: Supports 100+ simultaneous sessions
 
-## 📊 Research & Validation
+## Research & Validation
 
 ### Clinical Validation
 - **Accuracy**: ±5 dB compared to clinical audiometry in controlled settings
@@ -445,7 +445,7 @@ docker run -p 10000:10000 --env-file .env aurohear
 - **Personal Awareness**: Individual hearing health monitoring
 - **Platform Improvement**: User feedback collection for continuous enhancement
 
-## 🚀 Future Enhancements
+## Future Enhancements
 
 ### Planned Development Roadmap
 

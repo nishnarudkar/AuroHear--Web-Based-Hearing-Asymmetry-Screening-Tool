@@ -1,6 +1,6 @@
 # Deployment Guide for AuroHear
 
-## 🚀 Render Deployment
+## Render Deployment
 
 ### Step 1: Prepare Your Repository
 1. **Remove .env file** from your repository (it should already be gitignored)
@@ -32,7 +32,7 @@ FLASK_ENV=production
 2. Render will automatically build and deploy your app
 3. Monitor the build logs for any errors
 
-## 🔧 Troubleshooting Common Issues
+## Troubleshooting Common Issues
 
 ### Database Connection Errors
 - **Issue**: `Could not parse SQLAlchemy URL`
@@ -49,14 +49,14 @@ FLASK_ENV=production
 - **Solution**: Ensure your app binds to `0.0.0.0:$PORT`
 - **Check**: Procfile should use `--bind 0.0.0.0:$PORT`
 
-## 🔒 Security Checklist
+## Security Checklist
 
 - [ ] `.env` file is not in repository
 - [ ] Environment variables are set in Render dashboard
 - [ ] Database credentials are secure
 - [ ] HTTPS is enabled (automatic on Render)
 
-## 📊 Post-Deployment Testing
+## Post-Deployment Testing
 
 1. **Visit your app URL** (provided by Render)
 2. **Test user registration** with Supabase auth
@@ -64,7 +64,7 @@ FLASK_ENV=production
 4. **Test audio functionality** with headphones
 5. **Download a test report** to verify PDF generation
 
-## 🔄 Updates and Redeployment
+## Updates and Redeployment
 
 1. **Make changes locally**
 2. **Test thoroughly**
