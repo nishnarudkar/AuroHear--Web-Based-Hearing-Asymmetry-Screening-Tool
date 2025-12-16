@@ -1,9 +1,23 @@
-// script.js (fixed scrolling + cross-browser timeouts + small UI fixes)
+// script.js - Enhanced authentication and user management
 let currentScreen = 'login';
 const testFrequencies = [5000, 4000, 2000, 1000, 500, 250];
 let userId = null;
 let calibrationVolume = 0.3;
 const debugMode = true;
+
+// Enhanced user state management
+let currentUser = {
+    id: null,
+    name: '',
+    surname: '',
+    gender: '',
+    ageGroup: '',
+    authType: 'guest', // 'authenticated' or 'guest'
+    supabaseId: null,
+    isAuthenticated: false
+};
+
+// Legacy variables for backward compatibility
 let userName = '';
 let userSurname = '';
 let userGender = '';
@@ -22,6 +36,108 @@ function fetchWithTimeout(resource, options = {}) {
     const id = setTimeout(() => controller.abort(), timeout);
     return fetch(resource, { ...options, signal: controller.signal })
         .finally(() => clearTimeout(id));
+}
+
+/* -----------------------
+   Authentication State Management
+   ----------------------- */
+function updateUserState(userData) {
+    if (userData) {
+        currentUser.id = userData.id;
+        currentUser.name = userData.name || '';
+        currentUser.surname = userData.surname || '';
+        currentUser.gender = userData.gender || '';
+        currentUser.ageGroup = userData.age_group || '';
+        currentUser.authType = userData.auth_type || 'guest';
+        currentUser.supabaseId = userData.supabase_id;
+        currentUser.isAuthenticated = userData.auth_type === 'authenticated';
+        
+        // Update legacy variables for backward compatibility
+        userId = userData.id;
+        userName = userData.name || '';
+        userSurname = userData.surname || '';
+        userGender = userData.gender || '';
+        userAgeGroup = userData.age_group || '';
+        
+        logDebug(`User state updated: ${currentUser.authType} user ${currentUser.id}`);
+    }
+}
+
+async function checkAuthenticationStatus() {
+    try {
+        // Check if user is authenticated with Supabase
+        if (supabase) {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user) {
+                logDebug('Supabase session found, checking backend sync');
+                const response = await fetchWithTimeout(`/auth/status?supabase_id=${session.user.id}`, {
+                    timeout: 5000
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.authenticated && result.user) {
+                        updateUserState(result.user);
+                        return true;
+                    }
+                }
+            }
+        }
+        
+        // No authentication found
+        currentUser.isAuthenticated = false;
+        currentUser.authType = 'guest';
+        logDebug('No authentication found - guest mode');
+        return false;
+    } catch (error) {
+        console.error('Auth status check failed:', error);
+        return false;
+    }
+}
+
+function updateUIForAuthState() {
+    const isAuthenticated = currentUser.isAuthenticated;
+    
+    // Update welcome screen based on auth state
+    const welcomeTitle = document.querySelector('#welcome-screen .title');
+    if (welcomeTitle) {
+        if (isAuthenticated && currentUser.name) {
+            welcomeTitle.textContent = `Welcome back, ${currentUser.name}!`;
+        } else {
+            welcomeTitle.textContent = 'Welcome to AuroHear';
+        }
+    }
+    
+    // Show/hide auth-only elements
+    const authElements = document.querySelectorAll('.auth-only');
+    authElements.forEach(el => {
+        el.style.display = isAuthenticated ? 'block' : 'none';
+    });
+    
+    // Show/hide guest-only elements
+    const guestElements = document.querySelectorAll('.guest-only');
+    guestElements.forEach(el => {
+        el.style.display = isAuthenticated ? 'none' : 'block';
+    });
+    
+    // Update profile information if authenticated
+    if (isAuthenticated) {
+        const profileName = document.getElementById('profile-name');
+        const profileDetails = document.getElementById('profile-details');
+        
+        if (profileName) {
+            profileName.textContent = `${currentUser.name || 'User'} ${currentUser.surname || ''}`.trim();
+        }
+        
+        if (profileDetails) {
+            const details = [];
+            if (currentUser.ageGroup) details.push(`Age: ${currentUser.ageGroup}`);
+            if (currentUser.gender) details.push(`Gender: ${currentUser.gender}`);
+            profileDetails.textContent = details.join(' • ') || 'Complete your profile';
+        }
+    }
+    
+    logDebug(`UI updated for ${isAuthenticated ? 'authenticated' : 'guest'} user`);
 }
 
 /* -----------------------
@@ -149,7 +265,16 @@ if (window.SUPABASE_URL && window.SUPABASE_KEY) {
 
 let isSignUp = false; // default mode: Sign In
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // Check authentication status on app load
+    const isAuthenticated = await checkAuthenticationStatus();
+    updateUIForAuthState();
+    
+    // If authenticated, skip login and go to welcome
+    if (isAuthenticated) {
+        showScreen('welcome');
+    }
+    
     // Auth Toggles
     const toggleSignIn = document.getElementById('toggle-signin');
     const toggleSignUp = document.getElementById('toggle-signup');
@@ -259,6 +384,36 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Profile management event listeners
+    const editProfileBtn = document.getElementById('edit-profile-btn');
+    if (editProfileBtn) editProfileBtn.addEventListener('click', showProfileScreen);
+    
+    const viewHistoryBtn = document.getElementById('view-history-btn');
+    if (viewHistoryBtn) viewHistoryBtn.addEventListener('click', showHistoryScreen);
+    
+    const profileForm = document.getElementById('profile-form');
+    if (profileForm) profileForm.addEventListener('submit', saveProfile);
+    
+    const cancelProfileBtn = document.getElementById('cancel-profile-btn');
+    if (cancelProfileBtn) cancelProfileBtn.addEventListener('click', () => showScreen('welcome'));
+    
+    const backToWelcomeBtn = document.getElementById('back-to-welcome-btn');
+    if (backToWelcomeBtn) backToWelcomeBtn.addEventListener('click', () => showScreen('welcome'));
+
+    // History tab navigation
+    const tabList = document.getElementById('tab-list');
+    const tabAudiogram = document.getElementById('tab-audiogram');
+    if (tabList) tabList.addEventListener('click', () => switchHistoryTab('list'));
+    if (tabAudiogram) tabAudiogram.addEventListener('click', () => switchHistoryTab('audiogram'));
+
+    // Audiogram controls
+    const selectAllBtn = document.getElementById('select-all-sessions');
+    const clearAllBtn = document.getElementById('clear-all-sessions');
+    const showLatest5Btn = document.getElementById('show-latest-5');
+    if (selectAllBtn) selectAllBtn.addEventListener('click', () => toggleAllSessions(true));
+    if (clearAllBtn) clearAllBtn.addEventListener('click', () => toggleAllSessions(false));
+    if (showLatest5Btn) showLatest5Btn.addEventListener('click', showLatest5Sessions);
+
     setActiveEar(null);
 });
 
@@ -341,15 +496,23 @@ async function syncBackendUser(supabaseId, name, surname, age, gender) {
 
         if (!response.ok) throw new Error('Backend sync failed');
         const result = await response.json();
-        userId = result.user_id; // Internal DB ID associated with Supabase ID
+        
+        // Update enhanced user state
+        if (result.user_data) {
+            updateUserState(result.user_data);
+        }
+        
+        // Update legacy variables for backward compatibility
+        userId = result.user_id;
+        if (result.user_data) {
+            userName = result.user_data.name || '';
+            userSurname = result.user_data.surname || '';
+            userAgeGroup = result.user_data.age_group || '';
+            userGender = result.user_data.gender || '';
+        }
 
-        // Update local vars
-        if (result.name) userName = result.name;
-        if (result.surname) userSurname = result.surname;
-        if (result.age_group) userAgeGroup = result.age_group;
-        if (result.gender) userGender = result.gender;
-
-        logDebug(`User synced: SupabaseID=${supabaseId} -> LocalID=${userId} Name=${userName}`);
+        logDebug(`User synced: SupabaseID=${supabaseId} -> LocalID=${userId} Type=${result.auth_type}`);
+        updateUIForAuthState();
         toggleLoader(false);
         showScreen('welcome');
     } catch (err) {
@@ -362,24 +525,44 @@ async function syncBackendUser(supabaseId, name, surname, age, gender) {
 async function createGuestUser() {
     const guestName = prompt("Enter a guest name:", "Guest");
     if (!guestName) return;
-    userName = guestName;
-    userSurname = "";
 
     toggleLoader(true);
     try {
         const response = await fetchWithTimeout('/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: guestName, surname: 'Guest', age_group: 'adult' }), // No Supabase ID
+            body: JSON.stringify({ 
+                name: guestName, 
+                surname: '', 
+                age_group: 'adult',
+                gender: 'prefer_not_to_say'
+            }), // No Supabase ID = guest user
             timeout: 6000
         });
+        
+        if (!response.ok) throw new Error('Guest registration failed');
         const result = await response.json();
+        
+        // Update enhanced user state
+        if (result.user_data) {
+            updateUserState(result.user_data);
+        }
+        
+        // Update legacy variables
         userId = result.user_id;
+        userName = guestName;
+        userSurname = '';
+        userAgeGroup = 'adult';
+        userGender = 'prefer_not_to_say';
+        
+        logDebug(`Guest user created: ID=${userId}`);
+        updateUIForAuthState();
         toggleLoader(false);
         showScreen('welcome');
     } catch (e) {
+        console.error('Guest creation error:', e);
         toggleLoader(false);
-        alert("Guest login failed");
+        alert("Guest login failed. Please try again.");
     }
 }
 
@@ -876,12 +1059,678 @@ async function showResultsScreen(data) {
    Restart test
    ----------------------- */
 function restartTest() {
+    // Reset user state
+    currentUser = {
+        id: null,
+        name: '',
+        surname: '',
+        gender: '',
+        ageGroup: '',
+        authType: 'guest',
+        supabaseId: null,
+        isAuthenticated: false
+    };
+    
+    // Reset legacy variables
     userId = null;
     userName = '';
     userSurname = '';
+    userGender = '';
+    userAgeGroup = '';
+    
     calibrationVolume = 0.3;
     const slider = document.getElementById('volume-slider');
     if (slider) slider.value = 0.3;
     showScreen('login');
     logDebug('Test restarted');
+}
+
+/* -----------------------
+   Profile Management Functions
+   ----------------------- */
+function showProfileScreen() {
+    if (!currentUser.isAuthenticated) {
+        alert('Profile management is only available for authenticated users.');
+        return;
+    }
+    
+    // Populate form with current user data
+    document.getElementById('profile-name-input').value = currentUser.name || '';
+    document.getElementById('profile-surname-input').value = currentUser.surname || '';
+    
+    // Set radio buttons
+    const ageRadio = document.querySelector(`input[name="profile_age_group"][value="${currentUser.ageGroup}"]`);
+    if (ageRadio) ageRadio.checked = true;
+    
+    const genderRadio = document.querySelector(`input[name="profile_gender"][value="${currentUser.gender}"]`);
+    if (genderRadio) genderRadio.checked = true;
+    
+    showScreen('profile');
+}
+
+async function saveProfile(e) {
+    e.preventDefault();
+    
+    if (!currentUser.isAuthenticated) {
+        showProfileError('Profile updates only available for authenticated users.');
+        return;
+    }
+    
+    const formData = {
+        name: document.getElementById('profile-name-input').value,
+        surname: document.getElementById('profile-surname-input').value,
+        age_group: document.querySelector('input[name="profile_age_group"]:checked')?.value,
+        gender: document.querySelector('input[name="profile_gender"]:checked')?.value
+    };
+    
+    toggleLoader(true);
+    try {
+        const response = await fetchWithTimeout(`/user/profile?user_id=${currentUser.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData),
+            timeout: 6000
+        });
+        
+        if (!response.ok) throw new Error('Profile update failed');
+        const result = await response.json();
+        
+        if (result.success && result.user) {
+            updateUserState(result.user);
+            updateUIForAuthState();
+            toggleLoader(false);
+            showScreen('welcome');
+            logDebug('Profile updated successfully');
+        } else {
+            throw new Error('Invalid response from server');
+        }
+    } catch (error) {
+        console.error('Profile update error:', error);
+        showProfileError(error.message || 'Failed to update profile');
+        toggleLoader(false);
+    }
+}
+
+async function showHistoryScreen() {
+    if (!currentUser.isAuthenticated) {
+        alert('Test history is only available for authenticated users.');
+        return;
+    }
+    
+    showScreen('history');
+    
+    // Show loading state
+    document.getElementById('history-loading').classList.remove('hidden');
+    document.getElementById('history-empty').classList.add('hidden');
+    document.getElementById('history-list').classList.add('hidden');
+    
+    try {
+        const response = await fetchWithTimeout(`/user/test-history?user_id=${currentUser.id}&limit=20`, {
+            timeout: 8000
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to load test history');
+        }
+        
+        const result = await response.json();
+        
+        document.getElementById('history-loading').classList.add('hidden');
+        
+        if (result.statistics.total_sessions === 0) {
+            document.getElementById('history-empty').classList.remove('hidden');
+        } else {
+            displayEnhancedTestHistory(result);
+            document.getElementById('history-list').classList.remove('hidden');
+        }
+    } catch (error) {
+        console.error('Test history error:', error);
+        document.getElementById('history-loading').classList.add('hidden');
+        document.getElementById('history-empty').classList.remove('hidden');
+        
+        const errorMsg = error.message.includes('authenticated') 
+            ? 'Please sign in to view your test history.'
+            : 'Failed to load test history. Please try again.';
+        document.querySelector('#history-empty p').textContent = errorMsg;
+    }
+}
+
+function displayEnhancedTestHistory(data) {
+    // Store history data globally for audiogram overlay
+    historyData = data;
+    
+    const historyList = document.getElementById('history-list');
+    historyList.innerHTML = '';
+    
+    // Add statistics header
+    const statsHeader = document.createElement('div');
+    statsHeader.className = 'history-stats';
+    statsHeader.innerHTML = `
+        <div class="stats-grid">
+            <div class="stat-item">
+                <span class="stat-value">${data.statistics.total_sessions}</span>
+                <span class="stat-label">Total Tests</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value">${data.statistics.recent_sessions_30d}</span>
+                <span class="stat-label">Last 30 Days</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value">${data.statistics.returned_sessions}</span>
+                <span class="stat-label">Showing</span>
+            </div>
+        </div>
+    `;
+    historyList.appendChild(statsHeader);
+    
+    if (data.history.length === 0) {
+        historyList.innerHTML += '<p class="muted">No test history available.</p>';
+        return;
+    }
+    
+    data.history.forEach((session, index) => {
+        const sessionDate = new Date(session.timestamp);
+        const isRecent = (Date.now() - sessionDate.getTime()) < (7 * 24 * 60 * 60 * 1000);
+        const isComplete = session.metadata.is_complete;
+        const hasAsymmetry = session.summary.asymmetry_detected;
+        
+        const sessionItem = document.createElement('div');
+        sessionItem.className = `history-item ${isRecent ? 'recent' : ''} ${!isComplete ? 'incomplete' : ''}`;
+        
+        // Create frequency breakdown
+        let frequencyDetails = '';
+        if (session.thresholds && (session.thresholds.left || session.thresholds.right)) {
+            const frequencies = [250, 500, 1000, 2000, 4000, 5000];
+            frequencyDetails = `
+                <div class="frequency-breakdown">
+                    <div class="breakdown-header">
+                        <h5>Detailed Results (dB HL)</h5>
+                        <button class="btn ghost tiny" onclick="viewSessionDetails('${session.session_id}')">
+                            View Details
+                        </button>
+                    </div>
+                    <div class="freq-headers">
+                        <span>Frequency</span>
+                        <span>Left</span>
+                        <span>Right</span>
+                        <span>Diff</span>
+                    </div>
+                    <div class="frequency-grid">
+                        ${frequencies.map(freq => {
+                            const leftVal = session.thresholds.left?.[freq];
+                            const rightVal = session.thresholds.right?.[freq];
+                            const diff = (leftVal !== undefined && rightVal !== undefined) 
+                                ? Math.abs(leftVal - rightVal).toFixed(1) 
+                                : 'N/A';
+                            const isSignificant = diff !== 'N/A' && parseFloat(diff) >= 15;
+                            return `
+                                <div class="freq-row ${isSignificant ? 'significant-diff' : ''}">
+                                    <span class="freq-label">${freq} Hz</span>
+                                    <span class="left-val">${leftVal?.toFixed(1) || 'N/A'}</span>
+                                    <span class="right-val">${rightVal?.toFixed(1) || 'N/A'}</span>
+                                    <span class="diff-val ${isSignificant ? 'significant' : ''}">${diff}</span>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Quality indicators
+        const qualityBadges = [];
+        if (isComplete) qualityBadges.push('<span class="badge success">Complete</span>');
+        else qualityBadges.push('<span class="badge warning">Incomplete</span>');
+        
+        if (hasAsymmetry) qualityBadges.push('<span class="badge alert">Asymmetry Detected</span>');
+        else qualityBadges.push('<span class="badge info">Normal Symmetry</span>');
+        
+        sessionItem.innerHTML = `
+            <div class="history-header">
+                <div class="session-title">
+                    <h4>Test ${data.history.length - index} ${isRecent ? '🆕' : ''}</h4>
+                    <div class="quality-badges">${qualityBadges.join('')}</div>
+                </div>
+                <div class="session-meta">
+                    <span class="test-date">${sessionDate.toLocaleDateString()}</span>
+                    <span class="test-time">${sessionDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                </div>
+            </div>
+            <div class="history-details">
+                <div class="result-summary">
+                    <span class="avg-result">Left Avg: ${session.summary.left_avg?.toFixed(1) || 'N/A'} dB HL</span>
+                    <span class="avg-result">Right Avg: ${session.summary.right_avg?.toFixed(1) || 'N/A'} dB HL</span>
+                    <span class="diff-result ${hasAsymmetry ? 'significant' : ''}">
+                        Max Difference: ${session.summary.dissimilarity?.toFixed(1) || 'N/A'} dB
+                        ${hasAsymmetry ? ' ⚠️' : ' ✓'}
+                    </span>
+                </div>
+                ${frequencyDetails}
+                <div class="session-info">
+                    <small class="muted">
+                        Session: ${session.session_id} • 
+                        Completeness: ${session.metadata.frequency_count}/${session.metadata.completeness.total_expected} frequencies
+                    </small>
+                </div>
+            </div>
+        `;
+        historyList.appendChild(sessionItem);
+    });
+    
+    // Add load more button if there are more sessions
+    if (data.statistics.has_more) {
+        const loadMoreBtn = document.createElement('button');
+        loadMoreBtn.className = 'btn ghost load-more-btn';
+        loadMoreBtn.textContent = 'Load More Sessions';
+        loadMoreBtn.onclick = () => loadMoreHistory(data.statistics.pagination.next_offset);
+        historyList.appendChild(loadMoreBtn);
+    }
+}
+
+async function viewSessionDetails(sessionId) {
+    try {
+        const response = await fetchWithTimeout(`/user/session/${sessionId}?user_id=${currentUser.id}`, {
+            timeout: 5000
+        });
+        
+        if (!response.ok) throw new Error('Failed to load session details');
+        const sessionData = await response.json();
+        
+        // Display detailed session information (could open a modal or new screen)
+        console.log('Session details:', sessionData);
+        alert(`Session Details:\n\nFrequencies tested: ${sessionData.analysis.frequencies_tested}\nSignificant asymmetries: ${sessionData.analysis.significant_frequencies.length}`);
+        
+    } catch (error) {
+        console.error('Session details error:', error);
+        alert('Failed to load session details.');
+    }
+}
+
+async function loadMoreHistory(offset) {
+    // Implementation for pagination - load additional sessions
+    logDebug(`Loading more history from offset ${offset}`);
+    // This would append additional sessions to the existing list
+}
+
+/* -----------------------
+   Audiogram Overlay System
+   ----------------------- */
+let historyData = null;
+let historyAudiogramChart = null;
+let selectedSessions = new Set();
+
+function switchHistoryTab(tabName) {
+    // Update tab buttons
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.getElementById(`tab-${tabName}`).classList.add('active');
+    
+    // Show/hide tab content
+    document.querySelectorAll('.tab-content').forEach(content => content.classList.add('hidden'));
+    
+    if (tabName === 'list') {
+        document.getElementById('history-list-view').classList.remove('hidden');
+    } else if (tabName === 'audiogram') {
+        document.getElementById('history-audiogram-view').classList.remove('hidden');
+        if (historyData && historyData.history.length > 0) {
+            initializeAudiogramOverlay();
+        }
+    }
+}
+
+function initializeAudiogramOverlay() {
+    if (!historyData || historyData.history.length === 0) {
+        return;
+    }
+    
+    // Populate session toggles
+    populateSessionToggles();
+    
+    // Initialize with latest 3 sessions selected
+    const latestSessions = historyData.history.slice(0, Math.min(3, historyData.history.length));
+    selectedSessions.clear();
+    latestSessions.forEach(session => selectedSessions.add(session.session_id));
+    
+    // Update toggle states
+    updateToggleStates();
+    
+    // Create the overlay chart
+    createAudiogramOverlay();
+}
+
+function populateSessionToggles() {
+    const togglesContainer = document.getElementById('session-toggles');
+    togglesContainer.innerHTML = '';
+    
+    historyData.history.forEach((session, index) => {
+        const sessionDate = new Date(session.timestamp);
+        const isComplete = session.metadata.is_complete;
+        
+        const toggleItem = document.createElement('div');
+        toggleItem.className = `session-toggle ${!isComplete ? 'incomplete' : ''}`;
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `session-${session.session_id}`;
+        checkbox.value = session.session_id;
+        checkbox.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                selectedSessions.add(session.session_id);
+            } else {
+                selectedSessions.delete(session.session_id);
+            }
+            updateAudiogramOverlay();
+        });
+        
+        const label = document.createElement('label');
+        label.htmlFor = checkbox.id;
+        label.innerHTML = `
+            <span class="session-info">
+                <span class="session-title">Test ${historyData.history.length - index}</span>
+                <span class="session-date">${sessionDate.toLocaleDateString()}</span>
+                <span class="session-time">${sessionDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+            </span>
+            <span class="session-summary">
+                L: ${session.summary.left_avg?.toFixed(1) || 'N/A'} | 
+                R: ${session.summary.right_avg?.toFixed(1) || 'N/A'} | 
+                Diff: ${session.summary.dissimilarity?.toFixed(1) || 'N/A'} dB
+                ${!isComplete ? ' (Incomplete)' : ''}
+            </span>
+        `;
+        
+        toggleItem.appendChild(checkbox);
+        toggleItem.appendChild(label);
+        togglesContainer.appendChild(toggleItem);
+    });
+}
+
+function updateToggleStates() {
+    historyData.history.forEach(session => {
+        const checkbox = document.getElementById(`session-${session.session_id}`);
+        if (checkbox) {
+            checkbox.checked = selectedSessions.has(session.session_id);
+        }
+    });
+}
+
+function toggleAllSessions(selectAll) {
+    selectedSessions.clear();
+    
+    if (selectAll) {
+        historyData.history.forEach(session => {
+            if (session.metadata.is_complete) { // Only select complete sessions
+                selectedSessions.add(session.session_id);
+            }
+        });
+    }
+    
+    updateToggleStates();
+    updateAudiogramOverlay();
+}
+
+function showLatest5Sessions() {
+    selectedSessions.clear();
+    
+    const latestComplete = historyData.history
+        .filter(session => session.metadata.is_complete)
+        .slice(0, 5);
+    
+    latestComplete.forEach(session => selectedSessions.add(session.session_id));
+    
+    updateToggleStates();
+    updateAudiogramOverlay();
+}
+
+function createAudiogramOverlay() {
+    const ctx = document.getElementById('history-audiogram-chart')?.getContext('2d');
+    if (!ctx) return;
+    
+    // Destroy existing chart
+    if (historyAudiogramChart) {
+        historyAudiogramChart.destroy();
+    }
+    
+    const datasets = [];
+    const colors = [
+        '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
+        '#06b6d4', '#f97316', '#84cc16', '#ec4899', '#6b7280'
+    ];
+    
+    let colorIndex = 0;
+    
+    // Create datasets for selected sessions
+    Array.from(selectedSessions).forEach(sessionId => {
+        const session = historyData.history.find(s => s.session_id === sessionId);
+        if (!session || !session.thresholds) return;
+        
+        const sessionDate = new Date(session.timestamp);
+        const sessionLabel = `${sessionDate.toLocaleDateString()} ${sessionDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
+        
+        // Left ear dataset
+        const leftColor = colors[colorIndex % colors.length];
+        datasets.push({
+            label: `${sessionLabel} - Left`,
+            data: testFrequencies.map(f => session.thresholds.left?.[f] || null),
+            borderColor: leftColor,
+            backgroundColor: leftColor + '20',
+            pointBackgroundColor: leftColor,
+            pointBorderColor: leftColor,
+            pointRadius: 6,
+            pointHoverRadius: 8,
+            tension: 0.2,
+            spanGaps: true,
+            borderWidth: 2,
+            pointStyle: 'circle'
+        });
+        
+        // Right ear dataset
+        const rightColor = colors[(colorIndex + 1) % colors.length];
+        datasets.push({
+            label: `${sessionLabel} - Right`,
+            data: testFrequencies.map(f => session.thresholds.right?.[f] || null),
+            borderColor: rightColor,
+            backgroundColor: rightColor + '20',
+            pointBackgroundColor: rightColor,
+            pointBorderColor: rightColor,
+            pointRadius: 6,
+            pointHoverRadius: 8,
+            tension: 0.2,
+            spanGaps: true,
+            borderWidth: 2,
+            pointStyle: 'triangle',
+            borderDash: [5, 5] // Dashed line for right ear
+        });
+        
+        colorIndex += 2;
+    });
+    
+    historyAudiogramChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: testFrequencies,
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Historical Audiogram Overlay',
+                    font: { size: 16, weight: 'bold' }
+                },
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        usePointStyle: true,
+                        padding: 15,
+                        font: { size: 11 }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        title: function(context) {
+                            return `${context[0].parsed.x} Hz`;
+                        },
+                        label: function(context) {
+                            const ear = context.dataset.label.includes('Left') ? 'Left' : 'Right';
+                            const date = context.dataset.label.split(' - ')[0];
+                            return `${date} ${ear}: ${context.parsed.y} dB HL`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'logarithmic',
+                    title: { 
+                        display: true, 
+                        text: 'Frequency (Hz)',
+                        font: { weight: 'bold' }
+                    },
+                    ticks: {
+                        callback: function(val, index, ticks) {
+                            return Number(val).toFixed(0);
+                        }
+                    },
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'
+                    }
+                },
+                y: {
+                    reverse: true,
+                    title: { 
+                        display: true, 
+                        text: 'Threshold (dB HL)',
+                        font: { weight: 'bold' }
+                    },
+                    min: -10,
+                    max: 40,
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'
+                    }
+                }
+            },
+            interaction: {
+                intersect: false,
+                mode: 'index'
+            }
+        }
+    });
+    
+    // Update legend
+    updateAudiogramLegend();
+}
+
+function updateAudiogramOverlay() {
+    if (historyAudiogramChart) {
+        createAudiogramOverlay(); // Recreate chart with new selection
+    }
+}
+
+function updateAudiogramLegend() {
+    const legendContainer = document.getElementById('audiogram-legend');
+    if (!legendContainer) return;
+    
+    legendContainer.innerHTML = `
+        <div class="legend-section">
+            <h5>Chart Legend</h5>
+            <div class="legend-items">
+                <div class="legend-item">
+                    <span class="legend-symbol circle"></span>
+                    <span>Left Ear (Solid Line)</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-symbol triangle"></span>
+                    <span>Right Ear (Dashed Line)</span>
+                </div>
+            </div>
+            <p class="legend-note">
+                <strong>Note:</strong> ${selectedSessions.size} session(s) displayed. 
+                Toggle sessions above to compare different test dates.
+            </p>
+        </div>
+    `;
+}
+
+function displayTestHistory(history) {
+    const historyList = document.getElementById('history-list');
+    historyList.innerHTML = '';
+    
+    if (history.length === 0) {
+        historyList.innerHTML = '<p class="muted">No test history available.</p>';
+        return;
+    }
+    
+    history.forEach((test, index) => {
+        const testDate = new Date(test.date);
+        const isRecent = (Date.now() - testDate.getTime()) < (7 * 24 * 60 * 60 * 1000); // Within 7 days
+        
+        const testItem = document.createElement('div');
+        testItem.className = `history-item ${isRecent ? 'recent' : ''}`;
+        
+        // Create frequency breakdown if available
+        let frequencyDetails = '';
+        if (test.thresholds && (test.thresholds.left || test.thresholds.right)) {
+            const frequencies = [250, 500, 1000, 2000, 4000, 5000];
+            frequencyDetails = `
+                <div class="frequency-breakdown">
+                    <h5>Detailed Results (dB HL)</h5>
+                    <div class="frequency-grid">
+                        ${frequencies.map(freq => {
+                            const leftVal = test.thresholds.left?.[freq];
+                            const rightVal = test.thresholds.right?.[freq];
+                            const diff = (leftVal !== undefined && rightVal !== undefined) 
+                                ? Math.abs(leftVal - rightVal).toFixed(1) 
+                                : 'N/A';
+                            return `
+                                <div class="freq-row">
+                                    <span class="freq-label">${freq} Hz</span>
+                                    <span class="left-val">${leftVal?.toFixed(1) || 'N/A'}</span>
+                                    <span class="right-val">${rightVal?.toFixed(1) || 'N/A'}</span>
+                                    <span class="diff-val ${diff !== 'N/A' && parseFloat(diff) >= 20 ? 'significant' : ''}">${diff}</span>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                    <div class="freq-headers">
+                        <span>Frequency</span>
+                        <span>Left</span>
+                        <span>Right</span>
+                        <span>Diff</span>
+                    </div>
+                </div>
+            `;
+        }
+        
+        testItem.innerHTML = `
+            <div class="history-header">
+                <h4>Test ${history.length - index} ${isRecent ? '🆕' : ''}</h4>
+                <span class="test-date">${testDate.toLocaleDateString()} ${testDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+            </div>
+            <div class="history-details">
+                <div class="result-summary">
+                    <span class="avg-result">Left Avg: ${test.left_avg?.toFixed(1) || 'N/A'} dB HL</span>
+                    <span class="avg-result">Right Avg: ${test.right_avg?.toFixed(1) || 'N/A'} dB HL</span>
+                    <span class="diff-result ${test.dissimilarity >= 20 ? 'significant' : ''}">
+                        Max Difference: ${test.dissimilarity?.toFixed(1) || 'N/A'} dB
+                        ${test.dissimilarity >= 20 ? ' ⚠️' : ' ✓'}
+                    </span>
+                </div>
+                ${frequencyDetails}
+                <div class="session-info">
+                    <small class="muted">Session ID: ${test.session_id || 'N/A'}</small>
+                </div>
+            </div>
+        `;
+        historyList.appendChild(testItem);
+    });
+}
+
+function showProfileError(message) {
+    const errorEl = document.getElementById('profile-error');
+    if (errorEl) {
+        errorEl.textContent = message;
+        errorEl.classList.remove('hidden');
+    }
 }

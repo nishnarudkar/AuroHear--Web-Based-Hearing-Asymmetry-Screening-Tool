@@ -110,10 +110,32 @@
             <div class="panel-inner center">
                 <h2 class="title">Welcome to AuroHear</h2>
                 <p class="lead">A fast, professional screening that highlights hearing asymmetry.</p>
+                
+                <!-- Profile info for authenticated users -->
+                <div id="user-profile-info" class="auth-only glass-card narrow" style="display: none; margin: 1rem 0;">
+                    <div class="profile-summary">
+                        <h3 id="profile-name">User Profile</h3>
+                        <p id="profile-details" class="muted small"></p>
+                    </div>
+                    <div class="profile-actions">
+                        <button id="view-history-btn" class="btn ghost small">View Test History</button>
+                        <button id="edit-profile-btn" class="btn ghost small">Edit Profile</button>
+                    </div>
+                </div>
+                
                 <div class="cta-row">
                     <button id="start-btn" class="btn primary large">Start Screening</button>
                 </div>
-                <p class="muted">Press SPACE or click to continue</p>
+                
+                <!-- Different messages for auth vs guest -->
+                <div id="guest-message" class="guest-only">
+                    <p class="muted">Press SPACE or click to continue</p>
+                    <p class="muted small">💡 Sign up to save your test history and track changes over time</p>
+                </div>
+                
+                <div id="auth-message" class="auth-only" style="display: none;">
+                    <p class="muted">Your test results will be saved to your profile</p>
+                </div>
             </div>
         </section>
 
@@ -244,6 +266,116 @@
 
                 <div class="cta-row right">
                     <button id="exit-test-early" class="btn ghost">Exit</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- — PROFILE MANAGEMENT — -->
+        <section id="profile-screen" class="panel hidden">
+            <div class="panel-inner">
+                <h2 class="title">User Profile</h2>
+                
+                <div class="glass-card">
+                    <form id="profile-form">
+                        <div class="row">
+                            <div class="field">
+                                <label for="profile-name-input">First Name</label>
+                                <input type="text" id="profile-name-input" placeholder="First Name" />
+                            </div>
+                            <div class="field">
+                                <label for="profile-surname-input">Surname</label>
+                                <input type="text" id="profile-surname-input" placeholder="Surname" />
+                            </div>
+                        </div>
+                        
+                        <div class="row compact">
+                            <div class="field radio-group">
+                                <label>Age Group</label>
+                                <div class="chips">
+                                    <label class="chip"><input type="radio" name="profile_age_group" value="child"> Child</label>
+                                    <label class="chip"><input type="radio" name="profile_age_group" value="adult"> Adult</label>
+                                    <label class="chip"><input type="radio" name="profile_age_group" value="senior"> Senior</label>
+                                </div>
+                            </div>
+                            <div class="field radio-group">
+                                <label>Gender</label>
+                                <div class="chips">
+                                    <label class="chip small"><input type="radio" name="profile_gender" value="male"> M</label>
+                                    <label class="chip small"><input type="radio" name="profile_gender" value="female"> F</label>
+                                    <label class="chip small"><input type="radio" name="profile_gender" value="other"> O</label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div id="profile-error" class="error-msg hidden"></div>
+                        
+                        <div class="cta-row">
+                            <button type="submit" id="save-profile-btn" class="btn success">Save Changes</button>
+                            <button type="button" id="cancel-profile-btn" class="btn ghost">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <!-- — TEST HISTORY — -->
+        <section id="history-screen" class="panel hidden">
+            <div class="panel-inner">
+                <h2 class="title">Test History</h2>
+                
+                <!-- History Navigation Tabs -->
+                <div class="history-tabs">
+                    <button id="tab-list" class="tab-btn active">Session List</button>
+                    <button id="tab-audiogram" class="tab-btn">Audiogram Overlay</button>
+                </div>
+                
+                <!-- Session List View -->
+                <div id="history-list-view" class="tab-content">
+                    <div id="history-content" class="glass-card">
+                        <div id="history-loading" class="loading-state">
+                            <p class="muted">Loading test history...</p>
+                        </div>
+                        
+                        <div id="history-empty" class="empty-state hidden">
+                            <p class="muted">No test history found.</p>
+                            <p class="muted small">Complete a hearing test to see your results here.</p>
+                        </div>
+                        
+                        <div id="history-list" class="history-list hidden">
+                            <!-- Test history items will be populated here -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Audiogram Overlay View -->
+                <div id="history-audiogram-view" class="tab-content hidden">
+                    <div class="glass-card">
+                        <div class="audiogram-controls">
+                            <div class="control-section">
+                                <h4>Select Sessions to Display</h4>
+                                <div id="session-toggles" class="session-toggles">
+                                    <!-- Session toggle checkboxes will be populated here -->
+                                </div>
+                            </div>
+                            <div class="control-section">
+                                <button id="select-all-sessions" class="btn ghost small">Select All</button>
+                                <button id="clear-all-sessions" class="btn ghost small">Clear All</button>
+                                <button id="show-latest-5" class="btn ghost small">Latest 5</button>
+                            </div>
+                        </div>
+                        
+                        <div class="chart-container">
+                            <canvas id="history-audiogram-chart" width="1200" height="600"></canvas>
+                        </div>
+                        
+                        <div id="audiogram-legend" class="audiogram-legend">
+                            <!-- Legend will be populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="cta-row">
+                    <button id="back-to-welcome-btn" class="btn ghost">Back to Welcome</button>
                 </div>
             </div>
         </section>
