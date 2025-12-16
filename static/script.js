@@ -211,9 +211,23 @@ function initializeAudioContext() {
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
         if (AudioContextClass) {
             audioContext = new AudioContextClass();
-            audioInitialized = true;
-            logDebug('Audio context initialized successfully');
-            return Promise.resolve();
+            
+            // Handle suspended context (common in production)
+            if (audioContext.state === 'suspended') {
+                logDebug('Audio context suspended, attempting to resume...');
+                return audioContext.resume().then(() => {
+                    audioInitialized = true;
+                    logDebug('Audio context resumed and initialized successfully');
+                }).catch(e => {
+                    console.warn('Failed to resume audio context:', e);
+                    audioInitialized = true; // Mark as initialized anyway
+                    return Promise.resolve();
+                });
+            } else {
+                audioInitialized = true;
+                logDebug('Audio context initialized successfully');
+                return Promise.resolve();
+            }
         }
     } catch (e) {
         console.warn('Audio context initialization failed:', e);
@@ -295,18 +309,30 @@ function playServerTone(params) {
         
         // Enhanced volume calculation for production environments
         const baseVolume = calibrationVolume * (params.volume ?? 1);
-        const minVolume = 0.2; // Increased minimum volume for production
+        const minVolume = 0.4; // Increased minimum volume for production
         const maxVolume = 1.0;
         
         // Apply production-friendly volume scaling
         audio.volume = Math.max(minVolume, Math.min(maxVolume, baseVolume));
         
+        // Force maximum volume for production debugging
+        if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+            audio.volume = 1.0; // Maximum volume in production
+            logDebug('Production environment detected - using maximum volume');
+        }
+        
         // Enhanced audio properties for better compatibility
         audio.preload = 'auto';
         audio.crossOrigin = 'anonymous';
         
+        // Production-specific audio settings
+        if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+            audio.autoplay = false; // Disable autoplay in production
+            audio.muted = false; // Ensure not muted
+        }
+        
         // Force audio format and add cache busting
-        const urlWithCache = `${url.toString()}&t=${Date.now()}`;
+        const urlWithCache = `${url.toString()}&t=${Date.now()}&prod=1`;
         
         logDebug(`Audio volume set to: ${audio.volume} (base: ${baseVolume}, calibration: ${calibrationVolume})`);
         logDebug(`Audio URL: ${urlWithCache}`);
@@ -322,10 +348,22 @@ function playServerTone(params) {
             logDebug('Audio failed, trying Web Audio API fallback');
             
             // Show visual indicator for audio issues
-            showAudioError('Server audio failed, trying backup method...');
+            showAudioError('Audio playback failed. Trying alternative method...');
+            
+            // Log detailed error information for production debugging
+            console.error('Audio Error Details:', {
+                error: audio.error,
+                networkState: audio.networkState,
+                readyState: audio.readyState,
+                src: audio.src,
+                volume: audio.volume,
+                muted: audio.muted,
+                paused: audio.paused
+            });
             
             // Try Web Audio API fallback
             if (audioContext && params.freq) {
+                logDebug('Attempting Web Audio API fallback');
                 generateWebAudioTone(
                     params.freq, 
                     params.duration || 0.35, 
@@ -333,6 +371,8 @@ function playServerTone(params) {
                     params.channel || 'both'
                 ).then(resolveOnce);
             } else {
+                logDebug('No Web Audio API available, resolving without audio');
+                showAudioError('Audio system unavailable. Please check your browser settings.');
                 resolveOnce();
             }
         };
@@ -377,9 +417,25 @@ function playServerTone(params) {
             console.error('Audio playback error:', err);
             clearTimeout(fallback);
             
+            // Log detailed playback error for production debugging
+            console.error('Audio Play Error Details:', {
+                name: err.name,
+                message: err.message,
+                code: err.code,
+                audioSrc: audio.src,
+                audioVolume: audio.volume,
+                audioMuted: audio.muted,
+                userAgent: navigator.userAgent,
+                isSecureContext: window.isSecureContext,
+                protocol: window.location.protocol
+            });
+            
+            // Show user-friendly error message
+            showAudioError('Audio playback blocked. Please ensure audio is enabled in your browser.');
+            
             // Immediate Web Audio API fallback
             if (audioContext && params.freq) {
-                logDebug('Trying immediate Web Audio API fallback');
+                logDebug('Trying immediate Web Audio API fallback due to play() failure');
                 generateWebAudioTone(
                     params.freq, 
                     params.duration || 0.35, 
@@ -387,6 +443,7 @@ function playServerTone(params) {
                     params.channel || 'both'
                 ).then(resolveOnce);
             } else {
+                logDebug('No Web Audio API available for fallback');
                 setTimeout(resolveOnce, fallbackMs);
             }
         });
@@ -474,6 +531,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Check authentication status on app load
     const isAuthenticated = await checkAuthenticationStatus();
     updateUIForAuthState();
+    
+    // Run audio system diagnostics in production
+    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        setTimeout(() => {
+            runAudioDiagnostics();
+        }, 2000);
+    }
     
     // If authenticated, skip login and go to welcome
     if (isAuthenticated) {
@@ -2908,34 +2972,204 @@ async function testAudio() {
     console.log('Audio tests completed');
 }
 
-// Show audio error to user
+// Show audio error to user with troubleshooting options
 function showAudioError(message) {
+    // Remove any existing audio error notifications
+    const existingErrors = document.querySelectorAll('.audio-error-notification');
+    existingErrors.forEach(el => el.remove());
+    
     const errorDiv = document.createElement('div');
+    errorDiv.className = 'audio-error-notification';
     errorDiv.style.cssText = `
         position: fixed;
         top: 20px;
         right: 20px;
         background: #ff6b6b;
         color: white;
-        padding: 10px 15px;
-        border-radius: 5px;
+        padding: 15px;
+        border-radius: 8px;
         z-index: 10000;
         font-size: 14px;
-        max-width: 300px;
+        max-width: 350px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     `;
-    errorDiv.textContent = message;
+    
+    errorDiv.innerHTML = `
+        <div style="font-weight: bold; margin-bottom: 8px;">🔊 Audio Issue Detected</div>
+        <div style="margin-bottom: 10px;">${message}</div>
+        <div style="font-size: 12px; margin-bottom: 10px;">
+            <strong>Quick fixes:</strong><br>
+            • Check volume is turned up<br>
+            • Ensure headphones are connected<br>
+            • Try refreshing the page<br>
+            • Check browser audio permissions
+        </div>
+        <button onclick="this.parentElement.remove()" style="
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            margin-right: 8px;
+        ">Dismiss</button>
+        <button onclick="window.runAudioDiagnostics()" style="
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        ">Test Audio</button>
+    `;
+    
     document.body.appendChild(errorDiv);
     
+    // Auto-dismiss after 8 seconds
     setTimeout(() => {
         if (errorDiv.parentNode) {
             errorDiv.parentNode.removeChild(errorDiv);
         }
-    }, 3000);
+    }, 8000);
+}
+
+// Run comprehensive audio diagnostics
+async function runAudioDiagnostics() {
+    console.log('🔊 Running Audio System Diagnostics...');
+    
+    const diagnostics = {
+        timestamp: new Date().toISOString(),
+        userAgent: navigator.userAgent,
+        isSecureContext: window.isSecureContext,
+        protocol: window.location.protocol,
+        hostname: window.location.hostname,
+        audioContextSupport: !!(window.AudioContext || window.webkitAudioContext),
+        htmlAudioSupport: !!window.Audio,
+        tests: {}
+    };
+    
+    // Test 1: Basic Audio Element Creation
+    try {
+        const testAudio = new Audio();
+        diagnostics.tests.audioElementCreation = {
+            success: true,
+            canPlayType: {
+                wav: testAudio.canPlayType('audio/wav'),
+                mp3: testAudio.canPlayType('audio/mpeg'),
+                ogg: testAudio.canPlayType('audio/ogg')
+            }
+        };
+    } catch (e) {
+        diagnostics.tests.audioElementCreation = { success: false, error: e.message };
+    }
+    
+    // Test 2: Server Tone Endpoint Accessibility
+    try {
+        const response = await fetch('/tone?freq=1000&duration=0.1&volume=0.1&channel=both&test=1');
+        diagnostics.tests.serverToneEndpoint = {
+            success: response.ok,
+            status: response.status,
+            contentType: response.headers.get('content-type'),
+            contentLength: response.headers.get('content-length')
+        };
+        
+        if (response.ok) {
+            const audioBlob = await response.blob();
+            diagnostics.tests.serverToneEndpoint.blobSize = audioBlob.size;
+        }
+    } catch (e) {
+        diagnostics.tests.serverToneEndpoint = { success: false, error: e.message };
+    }
+    
+    // Test 3: Web Audio API Context
+    try {
+        await initializeAudioContext();
+        diagnostics.tests.webAudioAPI = {
+            success: !!audioContext,
+            state: audioContext ? audioContext.state : 'unavailable',
+            sampleRate: audioContext ? audioContext.sampleRate : null
+        };
+    } catch (e) {
+        diagnostics.tests.webAudioAPI = { success: false, error: e.message };
+    }
+    
+    // Test 4: Audio Playback Test (silent)
+    try {
+        const testResult = await testSilentAudioPlayback();
+        diagnostics.tests.audioPlayback = testResult;
+    } catch (e) {
+        diagnostics.tests.audioPlayback = { success: false, error: e.message };
+    }
+    
+    // Log comprehensive results
+    console.log('🔊 Audio Diagnostics Complete:', diagnostics);
+    
+    // Show warning if critical issues detected
+    const criticalIssues = [];
+    if (!diagnostics.tests.serverToneEndpoint?.success) {
+        criticalIssues.push('Server audio endpoint unavailable');
+    }
+    if (!diagnostics.tests.audioPlayback?.success) {
+        criticalIssues.push('Audio playback blocked or failed');
+    }
+    if (!diagnostics.isSecureContext && diagnostics.protocol !== 'https:') {
+        criticalIssues.push('Insecure context may limit audio features');
+    }
+    
+    if (criticalIssues.length > 0) {
+        console.warn('⚠️ Audio System Issues Detected:', criticalIssues);
+        showAudioError(`Audio system issues detected: ${criticalIssues.join(', ')}. Please check browser settings.`);
+    } else {
+        console.log('✅ Audio system appears functional');
+    }
+    
+    return diagnostics;
+}
+
+// Test silent audio playback to check for browser blocking
+async function testSilentAudioPlayback() {
+    return new Promise((resolve) => {
+        const testAudio = new Audio();
+        testAudio.volume = 0.01; // Very quiet
+        testAudio.preload = 'auto';
+        
+        let resolved = false;
+        const resolveOnce = (result) => {
+            if (!resolved) {
+                resolved = true;
+                resolve(result);
+            }
+        };
+        
+        testAudio.oncanplay = () => {
+            testAudio.play().then(() => {
+                resolveOnce({ success: true, method: 'html_audio', canPlay: true });
+            }).catch(err => {
+                resolveOnce({ success: false, method: 'html_audio', error: err.message, canPlay: true });
+            });
+        };
+        
+        testAudio.onerror = (e) => {
+            resolveOnce({ success: false, method: 'html_audio', error: 'Audio load error', canPlay: false });
+        };
+        
+        // Set a simple data URL for a minimal WAV file
+        testAudio.src = 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT';
+        
+        // Fallback timeout
+        setTimeout(() => {
+            resolveOnce({ success: false, method: 'html_audio', error: 'Timeout', canPlay: false });
+        }, 3000);
+    });
 }
 
 // Add debug and test functions to global scope for console access
 window.debugAudio = debugAudioSettings;
 window.testAudio = testAudio;
+window.runAudioDiagnostics = runAudioDiagnostics;
 
 /* -----------------------
    Feedback System

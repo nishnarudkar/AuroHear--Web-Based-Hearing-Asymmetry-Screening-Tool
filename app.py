@@ -760,12 +760,19 @@ def run_migrations():
                 logger.error(f"Table creation also failed: {create_error}")
                 raise
 
-# Run migration on import/start
+# Run migration on import/start for both SQLite and PostgreSQL
 try:
-    if 'sqlite' in app.config['SQLALCHEMY_DATABASE_URI']:
-        run_migrations()
+    run_migrations()
+    logger.info("Database migration completed successfully")
 except Exception as e:
-    logger.warning(f"Migration failed (might be already done or not sqlite): {e}")
+    logger.warning(f"Migration failed (might be already done): {e}")
+    # Try to create all tables as fallback
+    try:
+        with app.app_context():
+            db.create_all()
+        logger.info("Fallback table creation completed")
+    except Exception as fallback_error:
+        logger.error(f"Fallback table creation also failed: {fallback_error}")
 
 
 # --- Core Application Routes ---
@@ -1101,20 +1108,23 @@ def generate_tone():
 
         # Enhanced volume calculation for production environments
         # Ensure minimum audible volume even for low dB levels
-        base_volume = max(volume, 0.01)  # Minimum 1% volume
+        base_volume = max(volume, 0.02)  # Increased minimum to 2% volume
         
         # Apply dB-based scaling with production-friendly adjustments
         if level_db < 40:
             # For levels below 40 dB, use a more aggressive scaling to ensure audibility
-            db_scaling = max(0.05, min(1.0, (level_db + 20) / 60))  # Scale from 5% to 100%
+            db_scaling = max(0.1, min(1.0, (level_db + 30) / 70))  # More aggressive scaling
         else:
             # For levels 40 dB and above, use standard scaling
-            db_scaling = min(1.0, level_db / 40)
+            db_scaling = min(1.0, level_db / 35)  # Slightly more aggressive
         
         final_volume = base_volume * db_scaling
         
+        # Ensure minimum audible volume for production
+        final_volume = max(final_volume, 0.15)  # Guarantee at least 15% volume
+        
         # Log volume calculation for debugging
-        logger.debug(f"Tone generation: freq={freq}Hz, level_db={level_db}dB, volume={volume}, final_volume={final_volume}")
+        logger.info(f"Tone generation: freq={freq}Hz, level_db={level_db}dB, input_volume={volume}, final_volume={final_volume}")
 
         sample_rate = 44100
         t = np.linspace(0, duration, int(sample_rate * duration), False)
@@ -1139,18 +1149,44 @@ def generate_tone():
         # Standard channel assignment: left channel first, right channel second
         audio = np.column_stack((left_arr, right_arr))
 
-        # Increased scaling for production environments - ensure audibility
-        scaling_factor = 0.95  # Increased from 0.8 to 0.95 for better audibility
+        # Maximum scaling for production environments - ensure audibility
+        scaling_factor = 1.0  # Maximum scaling for production
         audio_int16 = (audio * 32767 * scaling_factor).astype(np.int16)
+        
+        # Ensure audio data is not empty or silent
+        if np.max(np.abs(audio_int16)) == 0:
+            logger.warning("Generated audio is silent, creating minimum audible tone")
+            # Create a minimum audible tone as fallback
+            min_tone = np.sin(2 * np.pi * freq * t) * 0.3
+            if channel == 'both':
+                min_audio = np.column_stack((min_tone, min_tone))
+            elif channel == 'left':
+                min_audio = np.column_stack((min_tone, np.zeros_like(min_tone)))
+            else:  # 'right'
+                min_audio = np.column_stack((np.zeros_like(min_tone), min_tone))
+            audio_int16 = (min_audio * 32767 * 0.5).astype(np.int16)
 
         bio = BytesIO()
         write(bio, sample_rate, audio_int16)
         bio.seek(0)
         
-        # Add headers for better audio streaming
-        response = Response(bio.getvalue(), mimetype='audio/wav')
-        response.headers['Cache-Control'] = 'no-cache'
-        response.headers['Content-Length'] = str(len(bio.getvalue()))
+        audio_data = bio.getvalue()
+        
+        # Validate audio data
+        if len(audio_data) < 100:  # WAV header should be at least 44 bytes + some data
+            logger.error(f"Generated audio data too small: {len(audio_data)} bytes")
+            return ("Audio generation failed - insufficient data", 500)
+        
+        logger.info(f"Generated audio: {len(audio_data)} bytes, freq={freq}Hz, duration={duration}s, volume={final_volume}")
+        
+        # Add headers for better audio streaming and compatibility
+        response = Response(audio_data, mimetype='audio/wav')
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        response.headers['Content-Length'] = str(len(audio_data))
+        response.headers['Accept-Ranges'] = 'bytes'
+        response.headers['Access-Control-Allow-Origin'] = '*'
         
         return response
     except Exception as e:
@@ -1550,9 +1586,10 @@ def analyze_interaural_differences():
         if user_id:
             logger.info(f"Interaural analysis requested by user {user_id}")
         
+        from datetime import datetime
         response_data = {
             'analysis_type': 'interaural_threshold_differences',
-            'timestamp': db.func.current_timestamp(),
+            'timestamp': datetime.now().isoformat(),
             'frequencies_analyzed': analysis['summary_stats']['frequencies_compared'],
             'per_frequency_differences': analysis['per_frequency'],
             'summary_statistics': analysis['summary_stats'],
@@ -1700,9 +1737,11 @@ def get_user_trend_analysis():
         trend_analysis = ScreeningSessions.analyze_session_trends(user.id, limit)
         
         # Add user context
+        from datetime import datetime
+        from datetime import datetime
         response_data = {
             'user_id': user.id,
-            'analysis_timestamp': db.func.current_timestamp(),
+            'analysis_timestamp': datetime.now().isoformat(),
             'trend_analysis': trend_analysis,
             'methodology': {
                 'classification_types': {
@@ -1761,9 +1800,10 @@ def get_measurement_summary():
         summary = ScreeningSessions.generate_educational_summary(user.id, limit)
         
         # Add user context and metadata
+        from datetime import datetime
         response_data = {
             'user_id': user.id,
-            'generated_at': db.func.current_timestamp(),
+            'generated_at': datetime.now().isoformat(),
             'summary': summary,
             'important_notes': {
                 'screening_nature': 'This is a preliminary screening tool, not a diagnostic test',
@@ -1961,8 +2001,9 @@ def save_screening_session(user_id, thresholds, left_avg, right_avg, dissimilari
             return None
         
         # Generate unique session ID
+        from datetime import datetime
         session_id = str(uuid.uuid4())
-        current_timestamp = db.func.current_timestamp()
+        current_timestamp = datetime.now()
         
         # Save individual frequency results as separate rows
         session_rows = []
