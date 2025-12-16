@@ -1106,9 +1106,9 @@ def generate_tone():
         if freq < 20 or freq > 20000:
             return ("Frequency out of audible range (20-20000 Hz)", 400)
 
-        # Server generates consistent full-scale audio
+        # Server generates controlled baseline audio for audiometric testing
         # Client handles all dB HL to amplitude conversion for accurate audiometric control
-        final_volume = 0.9  # High-quality server-side generation, client controls final volume
+        final_volume = 0.6  # Reduced baseline for better client-side control
         
         # Log server-side generation (client handles dB conversion)
         logger.info(f"Server tone generation: freq={freq}Hz, level_db={level_db}dB (client-processed), server_volume={final_volume}")

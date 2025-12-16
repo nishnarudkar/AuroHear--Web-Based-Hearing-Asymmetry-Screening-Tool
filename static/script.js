@@ -2,8 +2,17 @@
 let currentScreen = 'login';
 const testFrequencies = [5000, 4000, 2000, 1000, 500, 250];
 let userId = null;
-let calibrationVolume = 0.3;
+let calibrationVolume = 0.2; // Reduced default calibration volume for better control
 const debugMode = true;
+
+// Catch trial system for response reliability
+let catchTrialData = {
+    totalCatchTrials: 0,
+    correctCatchResponses: 0, // Should respond "No" to catch trials
+    trialsSinceLastCatch: 0,
+    isCurrentTrialCatch: false,
+    reliabilityScore: null
+};
 
 // Enhanced user state management
 let currentUser = {
@@ -307,26 +316,33 @@ function playServerTone(params) {
             }
         };
         
-        // Audiometric loudness strategy with reference offset and inaudibility floor
+        // Enhanced Hughson-Westlake audiometric amplitude mapping with steeper attenuation
         const levelDb = params.level_db || 40;
-        const REFERENCE_DB = 20; // Reference level for screening (20 dB HL = threshold of audibility)
+        const REFERENCE_DB = 50; // Increased reference level for better dynamic range
         
-        // Enforce hard inaudibility floor: dB HL ≤ 0 must be silent
+        // Enforce silence at 0 dB and below
         if (levelDb <= 0) {
             audio.volume = 0.0;
-            logDebug(`Volume calculation: ${levelDb}dB -> INAUDIBLE (≤ 0 dB HL)`);
+            logDebug(`Volume calculation: ${levelDb}dB -> SILENT (≤ 0 dB HL)`);
         } else {
-            // Calculate effective dB relative to reference
+            // Calculate dB relative to 50 dB reference for steeper curve
             const effectiveDb = levelDb - REFERENCE_DB;
             
-            // Convert to linear gain: gain = 10^(effectiveDb / 20)
-            const gain = Math.pow(10, effectiveDb / 20);
+            // Enhanced logarithmic dB-to-gain conversion with additional attenuation
+            const rawGain = Math.pow(10, effectiveDb / 20);
             
-            // Apply calibration and clamp to safe range [0, 1]
-            const finalVolume = calibrationVolume * gain * (params.volume || 1);
-            audio.volume = Math.max(0.0, Math.min(1.0, finalVolume));
+            // Apply additional attenuation factor for more gradual volume changes
+            const attenuationFactor = 0.4; // Reduce overall amplitude significantly
+            const adjustedGain = rawGain * attenuationFactor;
             
-            logDebug(`Volume calculation: ${levelDb}dB -> effective=${effectiveDb}dB, gain=${gain.toFixed(4)}, calibration=${calibrationVolume}, final=${audio.volume.toFixed(4)}`);
+            // Clamp gain to much lower audiometric range [0.0001, 0.15]
+            const clampedGain = Math.max(0.0001, Math.min(0.15, adjustedGain));
+            
+            // Apply calibration volume with additional safety reduction
+            const safetyFactor = 0.7; // Additional safety reduction
+            audio.volume = calibrationVolume * clampedGain * safetyFactor * (params.volume || 1);
+            
+            logDebug(`Volume calculation: ${levelDb}dB -> effective=${effectiveDb}dB, rawGain=${rawGain.toFixed(4)}, attenuated=${adjustedGain.toFixed(4)}, clampedGain=${clampedGain.toFixed(4)}, final=${audio.volume.toFixed(4)}`);
         }
         
         // Enhanced audio properties for better compatibility
@@ -342,7 +358,7 @@ function playServerTone(params) {
         // Force audio format and add cache busting
         const urlWithCache = `${url.toString()}&t=${Date.now()}&prod=1`;
         
-        logDebug(`Audio volume set to: ${audio.volume} (base: ${baseVolume}, calibration: ${calibrationVolume})`);
+        logDebug(`Audio volume set to: ${audio.volume} (calibration: ${calibrationVolume})`);
         logDebug(`Audio URL: ${urlWithCache}`);
         
         // Set up event handlers
@@ -491,13 +507,13 @@ function playChannelTest(channel) {
     
     setActiveEar(channel);
     
-    // Enhanced channel test with higher volume and longer duration for better audibility
+    // Enhanced channel test with controlled volume for better audibility
     playServerTone({ 
         freq: 1000, 
         duration: 1.0,  // Longer duration for better testing
-        volume: 0.8,    // Higher volume for production
+        volume: 1.0,    // Use full scale, let dB system handle volume
         channel: channel,
-        level_db: 60    // Higher dB level for channel testing
+        level_db: 55    // Moderate dB level for channel testing
     }).then(() => setTimeout(() => {
         if (status) status.textContent = '';
         setActiveEar(null);
@@ -616,13 +632,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const playToneBtn = document.getElementById('play-tone-btn');
     if (playToneBtn) playToneBtn.addEventListener('click', () => {
-        // Professional calibration - enhanced for production environments
+        // Professional calibration - controlled for audiometric accuracy
         playServerTone({ 
             freq: 1000, 
             duration: 1.0, 
             volume: 1.0, 
             channel: 'both',
-            level_db: 50  // Higher dB level for calibration tone
+            level_db: 45  // Moderate dB level for calibration tone
         });
     });
 
@@ -872,6 +888,68 @@ function showError(msg) {
    ----------------------- */
 
 /* -----------------------
+   Catch Trial System for Response Reliability
+   ----------------------- */
+function shouldInsertCatchTrial(testData) {
+    // Never insert during threshold confirmation (ascending trials)
+    if (testData.phase === 'threshold_confirmation' || testData.ascending_count >= 2) {
+        return false;
+    }
+    
+    // Never insert consecutive catch trials
+    if (catchTrialData.trialsSinceLastCatch === 0) {
+        return false;
+    }
+    
+    // Insert randomly every 8-12 trials
+    const minInterval = 8;
+    const maxInterval = 12;
+    const shouldInsert = catchTrialData.trialsSinceLastCatch >= minInterval && 
+                        Math.random() < (1 / (maxInterval - minInterval + 1));
+    
+    logDebug(`Catch trial check: trials since last=${catchTrialData.trialsSinceLastCatch}, should insert=${shouldInsert}`);
+    return shouldInsert;
+}
+
+function processCatchTrialResponse(heard) {
+    if (!catchTrialData.isCurrentTrialCatch) return;
+    
+    catchTrialData.totalCatchTrials++;
+    
+    // Correct response to catch trial is "No" (didn't hear anything)
+    if (!heard) {
+        catchTrialData.correctCatchResponses++;
+        logDebug('Catch trial: Correct response (No)');
+    } else {
+        logDebug('Catch trial: Incorrect response (Yes to silence)');
+    }
+    
+    // Calculate reliability score
+    if (catchTrialData.totalCatchTrials > 0) {
+        catchTrialData.reliabilityScore = 
+            (catchTrialData.correctCatchResponses / catchTrialData.totalCatchTrials) * 100;
+    }
+    
+    logDebug(`Catch trial stats: ${catchTrialData.correctCatchResponses}/${catchTrialData.totalCatchTrials} correct (${catchTrialData.reliabilityScore?.toFixed(1)}%)`);
+}
+
+function getReliabilityIndicator() {
+    if (catchTrialData.totalCatchTrials < 2) {
+        return { level: 'insufficient', description: 'Insufficient data for reliability assessment' };
+    }
+    
+    const score = catchTrialData.reliabilityScore;
+    
+    if (score >= 80) {
+        return { level: 'high', description: 'High response reliability' };
+    } else if (score >= 60) {
+        return { level: 'medium', description: 'Medium response reliability' };
+    } else {
+        return { level: 'low', description: 'Low response reliability - consider retesting' };
+    }
+}
+
+/* -----------------------
    Start test / run test
    ----------------------- */
 async function startHearingTest() {
@@ -880,6 +958,17 @@ async function startHearingTest() {
         showScreen('login');
         return;
     }
+    
+    // Reset catch trial data for new test
+    catchTrialData = {
+        totalCatchTrials: 0,
+        correctCatchResponses: 0,
+        trialsSinceLastCatch: 0,
+        isCurrentTrialCatch: false,
+        reliabilityScore: null
+    };
+    
+    logDebug('Catch trial system reset for new test');
     
     // Professional test start - no popup tips needed
     
@@ -919,6 +1008,15 @@ async function startHearingTest() {
 async function runTest(testData) {
     logDebug(`Running test: ${JSON.stringify(testData)}`);
     
+    // Check if this should be a catch trial
+    catchTrialData.trialsSinceLastCatch++;
+    catchTrialData.isCurrentTrialCatch = shouldInsertCatchTrial(testData);
+    
+    if (catchTrialData.isCurrentTrialCatch) {
+        catchTrialData.trialsSinceLastCatch = 0;
+        logDebug('Inserting catch trial (silent presentation)');
+    }
+    
     // Update progress with enhanced display
     updateProgressWithPhases(testData.progress ?? 0, testData.test_number, testData.total_tests);
     
@@ -947,31 +1045,48 @@ async function runTest(testData) {
 
     // Disable buttons and show tone indicator
     enableResponseButtons(false);
-    showToneIndicator(true, { frequency: testData.freq, level: testData.level ?? 40 });
+    
+    if (catchTrialData.isCurrentTrialCatch) {
+        // Catch trial: Show normal indicator but play no sound
+        showToneIndicator(true, { frequency: testData.freq, level: 0, isCatchTrial: true });
+        
+        // Simulate normal tone duration with silence
+        await new Promise(resolve => setTimeout(resolve, 350));
+        
+        // Finish "playing" the silent tone
+        showToneIndicator(false);
+        enableResponseButtons(true);
+        
+        logDebug('Catch trial (silence) presented, buttons enabled');
+        return;
+    } else {
+        // Normal trial: Play actual tone
+        showToneIndicator(true, { frequency: testData.freq, level: testData.level ?? 40 });
 
-    let attempts = 0;
-    const maxAttempts = 3;
-    while (attempts < maxAttempts) {
-        try {
-            await playTestTone(testData.freq, testData.ear, testData.level ?? 40);
-            
-            // Tone finished playing
-            showToneIndicator(false);
-            enableResponseButtons(true);
-            
-            logDebug('Tone played, buttons enabled');
-            return;
-        } catch (err) {
-            attempts++;
-            console.error(`Tone playback error (attempt ${attempts}):`, err);
-            if (attempts === maxAttempts) {
-                console.error('Max playback attempts reached');
-                updateTestGuidance('testing', 'Audio error occurred. Please try again or check your headphones.');
+        let attempts = 0;
+        const maxAttempts = 3;
+        while (attempts < maxAttempts) {
+            try {
+                await playTestTone(testData.freq, testData.ear, testData.level ?? 40);
+                
+                // Tone finished playing
                 showToneIndicator(false);
                 enableResponseButtons(true);
+                
+                logDebug('Tone played, buttons enabled');
                 return;
+            } catch (err) {
+                attempts++;
+                console.error(`Tone playback error (attempt ${attempts}):`, err);
+                if (attempts === maxAttempts) {
+                    console.error('Max playback attempts reached');
+                    updateTestGuidance('testing', 'Audio error occurred. Please try again or check your headphones.');
+                    showToneIndicator(false);
+                    enableResponseButtons(true);
+                    return;
+                }
+                await new Promise(resolve => setTimeout(resolve, 500));
             }
-            await new Promise(resolve => setTimeout(resolve, 500));
         }
     }
 }
@@ -986,7 +1101,11 @@ async function submitResponse(heard) {
         return;
     }
 
-    logDebug(`Submitting response: heard=${heard}`);
+    logDebug(`Submitting response: heard=${heard}, isCatchTrial=${catchTrialData.isCurrentTrialCatch}`);
+    
+    // Process catch trial response (but don't reveal it to user)
+    processCatchTrialResponse(heard);
+    
     const responseStatus = document.getElementById('response-status');
     if (responseStatus) responseStatus.textContent = 'Submitting response...';
     const yesBtn = document.getElementById('yes-btn');
@@ -996,30 +1115,51 @@ async function submitResponse(heard) {
 
     toggleLoader(true);
     try {
-        const response = await fetchWithTimeout('/submit_response', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: userId, heard: heard }),
-            timeout: 6000
-        });
-        if (!response.ok) throw new Error(`Submit response failed: ${response.statusText}`);
-        const result = await response.json();
-        if (result.error) throw new Error(result.error);
-        logDebug('Response submitted successfully');
+        // Only submit to server if it's NOT a catch trial
+        if (!catchTrialData.isCurrentTrialCatch) {
+            const response = await fetchWithTimeout('/submit_response', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: userId, heard: heard }),
+                timeout: 6000
+            });
+            if (!response.ok) throw new Error(`Submit response failed: ${response.statusText}`);
+            const result = await response.json();
+            if (result.error) throw new Error(result.error);
+            logDebug('Response submitted successfully');
 
-        const nextTest = await fetchWithTimeout(`/next_test?user_id=${userId}`, { timeout: 6000 });
-        if (!nextTest.ok) throw new Error(`Next test failed: ${nextTest.statusText}`);
-        const testData = await nextTest.json();
-        if (testData.error) throw new Error(testData.error);
-        logDebug(`Next test data: ${JSON.stringify(testData)}`);
+            const nextTest = await fetchWithTimeout(`/next_test?user_id=${userId}`, { timeout: 6000 });
+            if (!nextTest.ok) throw new Error(`Next test failed: ${nextTest.statusText}`);
+            const testData = await nextTest.json();
+            if (testData.error) throw new Error(testData.error);
+            logDebug(`Next test data: ${JSON.stringify(testData)}`);
 
-        toggleLoader(false);
-        if (testData.completed) {
-            logDebug('Test completed, showing results');
-            updateTestGuidance('completed', 'Congratulations! Your hearing test is complete.');
-            setTimeout(() => showResultsScreen(testData), 1000);
+            toggleLoader(false);
+            if (testData.completed) {
+                logDebug('Test completed, showing results');
+                updateTestGuidance('completed', 'Congratulations! Your hearing test is complete.');
+                setTimeout(() => showResultsScreen(testData), 1000);
+            } else {
+                setTimeout(() => runTest(testData), 150);
+            }
         } else {
-            setTimeout(() => runTest(testData), 150);
+            // Catch trial: Skip server submission, continue with same test parameters
+            logDebug('Catch trial completed, continuing without server submission');
+            
+            // Get current test state to continue
+            const nextTest = await fetchWithTimeout(`/next_test?user_id=${userId}`, { timeout: 6000 });
+            if (!nextTest.ok) throw new Error(`Next test failed: ${nextTest.statusText}`);
+            const testData = await nextTest.json();
+            if (testData.error) throw new Error(testData.error);
+            
+            toggleLoader(false);
+            if (testData.completed) {
+                logDebug('Test completed, showing results');
+                updateTestGuidance('completed', 'Congratulations! Your hearing test is complete.');
+                setTimeout(() => showResultsScreen(testData), 1000);
+            } else {
+                setTimeout(() => runTest(testData), 150);
+            }
         }
     } catch (err) {
         toggleLoader(false);
@@ -1386,6 +1526,30 @@ async function showResultsScreen(data) {
         statusEl.style.color = asymmetryDetected ? '#c0392b' : '#2e7d5e';
     }
 
+    // Add response reliability indicator
+    const reliability = getReliabilityIndicator();
+    const reliabilityEl = document.getElementById('reliability-indicator');
+    if (reliabilityEl) {
+        const reliabilityColor = reliability.level === 'high' ? '#2e7d5e' : 
+                                reliability.level === 'medium' ? '#f39c12' : '#c0392b';
+        reliabilityEl.innerHTML = `
+            <span style="color: ${reliabilityColor};">
+                Response Reliability: ${reliability.level.toUpperCase()}
+            </span>
+            <br>
+            <small class="muted">${reliability.description}</small>
+        `;
+        
+        if (reliability.level === 'low') {
+            reliabilityEl.innerHTML += `
+                <br>
+                <small style="color: #c0392b;">
+                    Consider retesting for more reliable results.
+                </small>
+            `;
+        }
+    }
+
     const recEl = document.getElementById('recommendation');
     if (recEl) recEl.textContent = asymmetryDetected
         ? 'Recommendation: Consult an audiologist for follow-up.'
@@ -1470,6 +1634,15 @@ function restartTest() {
         isAuthenticated: false
     };
     
+    // Reset catch trial data
+    catchTrialData = {
+        totalCatchTrials: 0,
+        correctCatchResponses: 0,
+        trialsSinceLastCatch: 0,
+        isCurrentTrialCatch: false,
+        reliabilityScore: null
+    };
+    
     // Reset legacy variables
     userId = null;
     userName = '';
@@ -1477,9 +1650,9 @@ function restartTest() {
     userGender = '';
     userAgeGroup = '';
     
-    calibrationVolume = 0.3;
+    calibrationVolume = 0.2;
     const slider = document.getElementById('volume-slider');
-    if (slider) slider.value = 0.3;
+    if (slider) slider.value = 0.2;
     showScreen('login');
     logDebug('Test restarted');
 }
@@ -2656,7 +2829,8 @@ function showToneIndicator(isPlaying, toneInfo = {}) {
         if (icon) icon.textContent = '🔊';
         if (status) {
             const freq = toneInfo.frequency ? `${toneInfo.frequency} Hz` : '';
-            const level = toneInfo.level ? `${toneInfo.level} dB HL` : '';
+            // Don't show level for catch trials (would reveal 0 dB HL)
+            const level = (toneInfo.level && !toneInfo.isCatchTrial) ? `${toneInfo.level} dB HL` : '';
             status.textContent = `Playing tone: ${freq} ${level}`.trim();
         }
         indicator?.classList.add('playing');

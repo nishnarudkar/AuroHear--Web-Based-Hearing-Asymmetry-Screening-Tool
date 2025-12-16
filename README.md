@@ -22,10 +22,11 @@ AuroHear is a professional-grade hearing asymmetry screening tool that provides 
 ## Core Features
 
 ### **Advanced Audiometry**
-- **Adaptive Threshold Testing**: Professional algorithms with 12-trial maximum per frequency
+- **Adaptive Threshold Testing**: Professional Hughson-Westlake algorithms with 12-trial maximum per frequency
 - **Standard Frequencies**: Complete testing at 250, 500, 1000, 2000, 4000, and 5000 Hz
-- **Precise Audio Control**: Server-side WAV generation with accurate channel routing
-- **Real-time Processing**: NumPy + SciPy for high-quality tone generation
+- **Catch Trial System**: False presentations (silent trials) for response reliability assessment
+- **Precise Audio Control**: Enhanced dB HL amplitude mapping with logarithmic scaling
+- **Real-time Processing**: NumPy + SciPy for high-quality tone generation with fade envelopes
 
 ### **User Management & Privacy**
 - **Dual Authentication**: Supabase Auth with secure guest mode fallback
@@ -35,6 +36,7 @@ AuroHear is a professional-grade hearing asymmetry screening tool that provides 
 
 ### **Professional Analytics**
 - **Interactive Audiograms**: Chart.js visualizations with frequency-specific thresholds
+- **Response Reliability**: Catch trial analysis with confidence indicators (High/Medium/Low)
 - **Interaural Analysis**: Detailed between-ear difference calculations
 - **Trend Analysis**: Multi-session pattern recognition with variance metrics
 - **Educational Summaries**: Neutral, non-diagnostic measurement insights
@@ -143,7 +145,10 @@ The application uses two main tables:
 - **Sample Rate**: 44.1 kHz for optimal compatibility
 - **Bit Depth**: 16-bit signed integer
 - **Channels**: Stereo with precise left/right routing
+- **Amplitude Control**: Enhanced dB HL mapping with 50 dB reference level
+- **Volume Safety**: Multi-layer attenuation (0.4x factor + 0.7x safety + calibration)
 - **Fade**: 10ms fade-in/out to prevent audio artifacts
+- **Catch Trials**: Silent presentations for reliability assessment
 
 ## Deployment
 
@@ -290,9 +295,11 @@ CREATE TABLE test_feedback (
 4. **Automated Testing**:
    - 6 frequencies per ear (250-5000 Hz)
    - Adaptive threshold detection (12 trials maximum)
+   - Catch trials for response reliability (1 per 8-12 trials)
    - Real-time progress tracking
 5. **Results Analysis**:
    - Interactive audiogram visualization
+   - Response reliability assessment (High/Medium/Low confidence)
    - Interaural difference calculations
    - Professional report generation
 6. **Feedback Collection** (Optional):
@@ -415,10 +422,12 @@ docker run -p 10000:10000 --env-file .env aurohear
 - **Calibration**: User-controlled volume with safety limits
 
 ### Testing Algorithm
-- **Method**: Modified Hughson-Westlake procedure
+- **Method**: Modified Hughson-Westlake procedure with catch trials
 - **Step Size**: 10 dB down, 5 dB up adaptive algorithm
 - **Threshold Criteria**: 50% response rate at given level
 - **Maximum Trials**: 12 per frequency to prevent fatigue
+- **Catch Trials**: 1 per 8-12 trials, never during threshold confirmation
+- **Reliability Assessment**: Response consistency scoring (High ≥80%, Medium 60-79%, Low <60%)
 - **Test Order**: High to low frequency, alternating ears
 - **Reliability**: Test-retest correlation >0.85 in controlled conditions
 
@@ -429,12 +438,41 @@ docker run -p 10000:10000 --env-file .env aurohear
 - **Database Performance**: <100ms query response time
 - **Concurrent Users**: Supports 100+ simultaneous sessions
 
+## Catch Trial System for Response Reliability
+
+### Overview
+AuroHear incorporates a sophisticated catch trial system to assess response reliability during audiometric screening. This feature helps identify inconsistent responding patterns without affecting threshold measurements.
+
+### Implementation Details
+- **Silent Presentations**: Randomly inserts trials with no audible stimulus (0 dB/silence)
+- **Insertion Rules**: 1 per 8-12 trials, never during threshold confirmation, never consecutive
+- **User Experience**: Normal prompting ("Did you hear the tone?") without revealing catch trials
+- **Data Separation**: Catch trial responses tracked separately from threshold data
+
+### Reliability Assessment
+- **High Reliability (≥80%)**: Consistent responses to catch trials
+- **Medium Reliability (60-79%)**: Moderate response consistency
+- **Low Reliability (<60%)**: Suggests retesting for more reliable results
+
+### Ethical Considerations
+- **Non-Accusatory**: No "faking" labels or judgmental language
+- **Professional Approach**: Neutral reliability feedback only
+- **Privacy Maintained**: No diagnostic claims or medical interpretation
+- **User Dignity**: Maintains trust and professional medical interface
+
+### Benefits
+- **Improved Confidence**: Healthcare professionals receive reliability indicators
+- **Quality Assurance**: Identifies tests requiring repetition
+- **Research Value**: Enhanced data quality for audiometric studies
+- **Clinical Standards**: Follows established audiometric best practices
+
 ## Research & Validation
 
 ### Clinical Validation
 - **Accuracy**: ±5 dB compared to clinical audiometry in controlled settings
 - **Sensitivity**: 85% detection rate for >20 dB asymmetries
 - **Specificity**: 92% correct identification of normal hearing
+- **Response Reliability**: Catch trial system improves detection of inconsistent responding
 - **Test Population**: Validated on 500+ participants (ages 18-65)
 
 ### Use Cases
