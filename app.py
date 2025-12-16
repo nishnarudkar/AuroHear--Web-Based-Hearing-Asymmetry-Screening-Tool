@@ -1106,22 +1106,12 @@ def generate_tone():
         if freq < 20 or freq > 20000:
             return ("Frequency out of audible range (20-20000 Hz)", 400)
 
-        # Proper audiometric volume calculation using logarithmic dB scaling
-        # Convert dB HL to linear amplitude (proper audiometric formula)
-        # Reference: 40 dB HL = comfortable listening level (volume = 1.0)
+        # Server generates consistent full-scale audio
+        # Client handles all dB HL to amplitude conversion for accurate audiometric control
+        final_volume = 0.9  # High-quality server-side generation, client controls final volume
         
-        # Calculate amplitude using proper dB formula: amplitude = 10^((dB - reference_dB) / 20)
-        reference_db = 40  # 40 dB HL as reference level
-        amplitude = 10 ** ((level_db - reference_db) / 20)
-        
-        # Apply user volume scaling
-        final_volume = amplitude * volume
-        
-        # Clamp to valid range (no minimum volume enforcement for proper thresholding)
-        final_volume = max(0.0, min(1.0, final_volume))
-        
-        # Log volume calculation for debugging
-        logger.info(f"Tone generation: freq={freq}Hz, level_db={level_db}dB, input_volume={volume}, final_volume={final_volume}")
+        # Log server-side generation (client handles dB conversion)
+        logger.info(f"Server tone generation: freq={freq}Hz, level_db={level_db}dB (client-processed), server_volume={final_volume}")
 
         sample_rate = 44100
         t = np.linspace(0, duration, int(sample_rate * duration), False)

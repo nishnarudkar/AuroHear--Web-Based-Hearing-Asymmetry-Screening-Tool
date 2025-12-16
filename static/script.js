@@ -307,12 +307,27 @@ function playServerTone(params) {
             }
         };
         
-        // Proper volume calculation for audiometric testing
-        // Server handles dB-to-amplitude conversion, client just applies calibration
-        const baseVolume = calibrationVolume * (params.volume ?? 1);
+        // Audiometric loudness strategy with reference offset and inaudibility floor
+        const levelDb = params.level_db || 40;
+        const REFERENCE_DB = 20; // Reference level for screening (20 dB HL = threshold of audibility)
         
-        // Apply volume with proper range (no artificial minimum for thresholding)
-        audio.volume = Math.max(0.0, Math.min(1.0, baseVolume));
+        // Enforce hard inaudibility floor: dB HL ≤ 0 must be silent
+        if (levelDb <= 0) {
+            audio.volume = 0.0;
+            logDebug(`Volume calculation: ${levelDb}dB -> INAUDIBLE (≤ 0 dB HL)`);
+        } else {
+            // Calculate effective dB relative to reference
+            const effectiveDb = levelDb - REFERENCE_DB;
+            
+            // Convert to linear gain: gain = 10^(effectiveDb / 20)
+            const gain = Math.pow(10, effectiveDb / 20);
+            
+            // Apply calibration and clamp to safe range [0, 1]
+            const finalVolume = calibrationVolume * gain * (params.volume || 1);
+            audio.volume = Math.max(0.0, Math.min(1.0, finalVolume));
+            
+            logDebug(`Volume calculation: ${levelDb}dB -> effective=${effectiveDb}dB, gain=${gain.toFixed(4)}, calibration=${calibrationVolume}, final=${audio.volume.toFixed(4)}`);
+        }
         
         // Enhanced audio properties for better compatibility
         audio.preload = 'auto';
