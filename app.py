@@ -1106,22 +1106,19 @@ def generate_tone():
         if freq < 20 or freq > 20000:
             return ("Frequency out of audible range (20-20000 Hz)", 400)
 
-        # Enhanced volume calculation for production environments
-        # Ensure minimum audible volume even for low dB levels
-        base_volume = max(volume, 0.02)  # Increased minimum to 2% volume
+        # Proper audiometric volume calculation using logarithmic dB scaling
+        # Convert dB HL to linear amplitude (proper audiometric formula)
+        # Reference: 40 dB HL = comfortable listening level (volume = 1.0)
         
-        # Apply dB-based scaling with production-friendly adjustments
-        if level_db < 40:
-            # For levels below 40 dB, use a more aggressive scaling to ensure audibility
-            db_scaling = max(0.1, min(1.0, (level_db + 30) / 70))  # More aggressive scaling
-        else:
-            # For levels 40 dB and above, use standard scaling
-            db_scaling = min(1.0, level_db / 35)  # Slightly more aggressive
+        # Calculate amplitude using proper dB formula: amplitude = 10^((dB - reference_dB) / 20)
+        reference_db = 40  # 40 dB HL as reference level
+        amplitude = 10 ** ((level_db - reference_db) / 20)
         
-        final_volume = base_volume * db_scaling
+        # Apply user volume scaling
+        final_volume = amplitude * volume
         
-        # Ensure minimum audible volume for production
-        final_volume = max(final_volume, 0.15)  # Guarantee at least 15% volume
+        # Clamp to valid range (no minimum volume enforcement for proper thresholding)
+        final_volume = max(0.0, min(1.0, final_volume))
         
         # Log volume calculation for debugging
         logger.info(f"Tone generation: freq={freq}Hz, level_db={level_db}dB, input_volume={volume}, final_volume={final_volume}")

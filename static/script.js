@@ -307,19 +307,12 @@ function playServerTone(params) {
             }
         };
         
-        // Enhanced volume calculation for production environments
+        // Proper volume calculation for audiometric testing
+        // Server handles dB-to-amplitude conversion, client just applies calibration
         const baseVolume = calibrationVolume * (params.volume ?? 1);
-        const minVolume = 0.4; // Increased minimum volume for production
-        const maxVolume = 1.0;
         
-        // Apply production-friendly volume scaling
-        audio.volume = Math.max(minVolume, Math.min(maxVolume, baseVolume));
-        
-        // Force maximum volume for production debugging
-        if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-            audio.volume = 1.0; // Maximum volume in production
-            logDebug('Production environment detected - using maximum volume');
-        }
+        // Apply volume with proper range (no artificial minimum for thresholding)
+        audio.volume = Math.max(0.0, Math.min(1.0, baseVolume));
         
         // Enhanced audio properties for better compatibility
         audio.preload = 'auto';
@@ -451,24 +444,17 @@ function playServerTone(params) {
 }
 
 async function playTestTone(freq, channel, levelDb) {
-    // Enhanced amplitude calculation for production environments
-    // Pass dB level to server for better volume control
-    const amplitude = Math.pow(10, (levelDb - 40) / 20);
-    
-    // Ensure minimum audible amplitude for production
-    const minAmplitude = 0.05; // 5% minimum volume
-    const adjustedAmplitude = Math.max(amplitude, minAmplitude);
-    
+    // Let server handle all dB-to-amplitude conversion for accurate audiometric testing
     const duration = 0.35;
     setActiveEar(channel);
     
-    // Pass both volume and dB level to server for enhanced processing
+    // Pass dB level to server for proper audiometric volume calculation
     await playServerTone({ 
         freq: freq, 
         duration: duration, 
-        volume: adjustedAmplitude, 
+        volume: 1.0,  // Use full scale, let server handle dB conversion
         channel: channel,
-        level_db: levelDb  // Pass dB level for server-side processing
+        level_db: levelDb
     });
     
     const earEl = channel === 'left' ? document.getElementById('left-ear-icon') : document.getElementById('right-ear-icon');
