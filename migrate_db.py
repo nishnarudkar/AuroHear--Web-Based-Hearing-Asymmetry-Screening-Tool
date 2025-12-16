@@ -48,43 +48,42 @@ def migrate_database():
                     
                     conn.commit()
             
-            # Create screening_session table if missing
-            if 'screening_session' not in existing_tables:
-                print('Creating screening_session table...')
+            # Create screening_sessions table if missing (new single-table structure)
+            if 'screening_sessions' not in existing_tables:
+                print('Creating screening_sessions table...')
                 with db.engine.connect() as conn:
                     conn.execute(db.text('''
-                        CREATE TABLE screening_session (
+                        CREATE TABLE screening_sessions (
                             id SERIAL PRIMARY KEY,
-                            session_id VARCHAR(36) UNIQUE NOT NULL,
+                            session_id VARCHAR(36) NOT NULL,
                             user_id INTEGER REFERENCES "user"(id),
                             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                            left_avg FLOAT,
-                            right_avg FLOAT,
-                            dissimilarity FLOAT
-                        )
-                    '''))
-                    conn.commit()
-                print('✓ screening_session table created')
-            else:
-                print('✓ screening_session table already exists')
-            
-            # Create screening_result table if missing
-            if 'screening_result' not in existing_tables:
-                print('Creating screening_result table...')
-                with db.engine.connect() as conn:
-                    conn.execute(db.text('''
-                        CREATE TABLE screening_result (
-                            id SERIAL PRIMARY KEY,
-                            session_id VARCHAR(36) REFERENCES screening_session(session_id) NOT NULL,
                             ear VARCHAR(5) NOT NULL,
                             frequency_hz INTEGER NOT NULL,
                             threshold_db FLOAT NOT NULL
                         )
                     '''))
+                    
+                    # Create indexes for efficient queries
+                    conn.execute(db.text('CREATE INDEX idx_session_user ON screening_sessions(session_id, user_id)'))
+                    conn.execute(db.text('CREATE INDEX idx_user_timestamp ON screening_sessions(user_id, timestamp)'))
                     conn.commit()
-                print('✓ screening_result table created')
+                print('✓ screening_sessions table created with indexes')
             else:
-                print('✓ screening_result table already exists')
+                print('✓ screening_sessions table already exists')
+            
+            # Drop old tables if they exist (migration from old structure)
+            if 'screening_session' in existing_tables:
+                print('Found old screening_session table - consider migrating data before dropping')
+                # Uncomment the following lines to drop old tables after data migration
+                # with db.engine.connect() as conn:
+                #     conn.execute(db.text('DROP TABLE IF EXISTS screening_result'))
+                #     conn.execute(db.text('DROP TABLE IF EXISTS screening_session'))
+                #     conn.commit()
+                # print('✓ Old tables dropped')
+            
+            if 'screening_result' in existing_tables:
+                print('Found old screening_result table - consider migrating data before dropping')
                 
             print('✅ Migration completed successfully!')
                 

@@ -93,64 +93,98 @@ class User(db.Model):
         }
 
 
-class ScreeningSession(db.Model):
+class ScreeningSessions(db.Model):
     """
-    Stores individual screening sessions for authenticated users only.
+    Stores individual screening test results for authenticated users only.
+    Each row represents one frequency test result.
     Guest sessions are never persisted to maintain privacy.
+    
+    Table structure matches exact specification:
+    - session_id (UUID): Groups related test results
+    - user_id (nullable): Links to authenticated user
+    - timestamp: When the test was performed
+    - ear: 'left' or 'right'
+    - frequency_hz: Test frequency (250, 500, 1000, 2000, 4000, 5000)
+    - threshold_db: Measured threshold in dB HL
     """
-    __tablename__ = 'screening_session'
+    __tablename__ = 'screening_sessions'
     
     id = db.Column(db.Integer, primary_key=True)
-    session_id = db.Column(db.String(36), unique=True, nullable=False)  # UUID
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # Nullable for flexibility
+    session_id = db.Column(db.String(36), nullable=False, index=True)  # UUID - not unique to allow multiple rows per session
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # Nullable as specified
     timestamp = db.Column(db.DateTime, default=db.func.current_timestamp(), nullable=False)
-    
-    # Test metadata
-    left_avg = db.Column(db.Float, nullable=True)
-    right_avg = db.Column(db.Float, nullable=True)
-    dissimilarity = db.Column(db.Float, nullable=True)
+    ear = db.Column(db.String(5), nullable=False)  # 'left' or 'right'
+    frequency_hz = db.Column(db.Integer, nullable=False)  # Test frequency
+    threshold_db = db.Column(db.Float, nullable=False)  # Threshold in dB HL
     
     # Relationship to user
     user = db.relationship('User', backref=db.backref('screening_sessions', lazy=True))
     
+    # Composite index for efficient queries
+    __table_args__ = (
+        db.Index('idx_session_user', 'session_id', 'user_id'),
+        db.Index('idx_user_timestamp', 'user_id', 'timestamp'),
+    )
+    
     def to_dict(self):
-        """Convert session to dictionary for JSON responses"""
+        """Convert screening result to dictionary for JSON responses"""
         return {
             'id': self.id,
             'session_id': self.session_id,
             'user_id': self.user_id,
             'timestamp': self.timestamp.isoformat() if self.timestamp else None,
-            'left_avg': self.left_avg,
-            'right_avg': self.right_avg,
-            'dissimilarity': self.dissimilarity
-        }
-
-
-class ScreeningResult(db.Model):
-    """
-    Stores individual frequency test results within a screening session.
-    Only created for authenticated users.
-    """
-    __tablename__ = 'screening_result'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    session_id = db.Column(db.String(36), db.ForeignKey('screening_session.session_id'), nullable=False)
-    ear = db.Column(db.String(5), nullable=False)  # 'left' or 'right'
-    frequency_hz = db.Column(db.Integer, nullable=False)  # e.g., 1000, 2000, etc.
-    threshold_db = db.Column(db.Float, nullable=False)  # Threshold in dB HL
-    
-    # Relationship to session
-    session = db.relationship('ScreeningSession', backref=db.backref('results', lazy=True))
-    
-    def to_dict(self):
-        """Convert result to dictionary for JSON responses"""
-        return {
-            'id': self.id,
-            'session_id': self.session_id,
             'ear': self.ear,
             'frequency_hz': self.frequency_hz,
             'threshold_db': self.threshold_db
         }
+    
+    @classmethod
+    def get_sessions_for_user(cls, user_id, limit=50, offset=0):
+        """Get all sessions for a user, grouped by session_id"""
+        return db.session.query(cls).filter_by(user_id=user_id)\
+            .order_by(cls.timestamp.desc())\
+            .offset(offset).limit(limit).all()
+    
+    @classmethod
+    def get_session_summary(cls, session_id):
+        """Get summary statistics for a specific session"""
+        results = cls.query.filter_by(session_id=session_id).all()
+        
+        if not results:
+            return None
+        
+        # Group by ear
+        left_thresholds = [r.threshold_db for r in results if r.ear == 'left']
+        right_thresholds = [r.threshold_db for r in results if r.ear == 'right']
+        
+        summary = {
+            'session_id': session_id,
+            'timestamp': results[0].timestamp,
+            'user_id': results[0].user_id,
+            'left_avg': sum(left_thresholds) / len(left_thresholds) if left_thresholds else None,
+            'right_avg': sum(right_thresholds) / len(right_thresholds) if right_thresholds else None,
+            'frequency_count': len(results),
+            'ears_tested': len(set(r.ear for r in results))
+        }
+        
+        # Calculate dissimilarity if both ears tested
+        if summary['left_avg'] is not None and summary['right_avg'] is not None:
+            # Find max difference across frequencies
+            freq_diffs = []
+            frequencies = set(r.frequency_hz for r in results)
+            
+            for freq in frequencies:
+                left_val = next((r.threshold_db for r in results if r.ear == 'left' and r.frequency_hz == freq), None)
+                right_val = next((r.threshold_db for r in results if r.ear == 'right' and r.frequency_hz == freq), None)
+                
+                if left_val is not None and right_val is not None:
+                    freq_diffs.append(abs(left_val - right_val))
+            
+            summary['dissimilarity'] = max(freq_diffs) if freq_diffs else None
+        else:
+            summary['dissimilarity'] = None
+        
+        return summary
 
 def run_migrations():
     """Database migration for both SQLite and PostgreSQL."""
@@ -199,14 +233,10 @@ def run_migrations():
                         conn.execute(db.text("ALTER TABLE user ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"))
                     conn.commit()
                     
-            # Create new tables if they don't exist
-            if not inspector.has_table('screening_session'):
-                logger.info("Creating screening_session table")
-                ScreeningSession.__table__.create(db.engine)
-                
-            if not inspector.has_table('screening_result'):
-                logger.info("Creating screening_result table")
-                ScreeningResult.__table__.create(db.engine)
+            # Create new screening_sessions table if it doesn't exist
+            if not inspector.has_table('screening_sessions'):
+                logger.info("Creating screening_sessions table")
+                ScreeningSessions.__table__.create(db.engine)
                 
             logger.info("Database migration completed successfully")
             
@@ -629,23 +659,57 @@ def get_test_history():
                 'auth_required': True
             }), 403
         
-        # Query screening sessions with pagination, ordered by latest first
-        sessions_query = ScreeningSession.query.filter_by(user_id=user.id).order_by(ScreeningSession.timestamp.desc())
-        total_sessions = sessions_query.count()
-        sessions = sessions_query.offset(offset).limit(limit).all()
+        # Get all screening session rows for this user
+        all_results = ScreeningSessions.query.filter_by(user_id=user.id)\
+            .order_by(ScreeningSessions.timestamp.desc()).all()
+        
+        if not all_results:
+            return jsonify({
+                'user_id': user.id,
+                'user_type': user.auth_type,
+                'statistics': {
+                    'total_sessions': 0,
+                    'returned_sessions': 0,
+                    'recent_sessions_30d': 0,
+                    'has_more': False,
+                    'pagination': {'limit': limit, 'offset': offset, 'next_offset': None}
+                },
+                'history': []
+            })
+        
+        # Group results by session_id
+        sessions_dict = {}
+        for result in all_results:
+            session_id = result.session_id
+            if session_id not in sessions_dict:
+                sessions_dict[session_id] = {
+                    'session_id': session_id,
+                    'timestamp': result.timestamp,
+                    'results': []
+                }
+            sessions_dict[session_id]['results'].append(result)
+        
+        # Convert to list and sort by timestamp (latest first)
+        sessions_list = list(sessions_dict.values())
+        sessions_list.sort(key=lambda x: x['timestamp'], reverse=True)
+        
+        # Apply pagination
+        total_sessions = len(sessions_list)
+        paginated_sessions = sessions_list[offset:offset + limit]
         
         history = []
-        for session in sessions:
-            # Get all detailed results for this session
-            results = ScreeningResult.query.filter_by(session_id=session.session_id).all()
+        for session_data in paginated_sessions:
+            session_id = session_data['session_id']
+            timestamp = session_data['timestamp']
+            results = session_data['results']
             
-            # Organize results by ear and frequency for easy access
+            # Organize results by ear and frequency
             thresholds = {'left': {}, 'right': {}}
-            frequency_count = 0
-            
             for result in results:
                 thresholds[result.ear][result.frequency_hz] = result.threshold_db
-                frequency_count += 1
+            
+            # Calculate summary statistics using the class method
+            summary = ScreeningSessions.get_session_summary(session_id)
             
             # Calculate session completeness
             expected_frequencies = [250, 500, 1000, 2000, 4000, 5000]
@@ -653,23 +717,23 @@ def get_test_history():
                 'left': len([f for f in expected_frequencies if f in thresholds['left']]),
                 'right': len([f for f in expected_frequencies if f in thresholds['right']]),
                 'total_expected': len(expected_frequencies) * 2,
-                'total_recorded': frequency_count
+                'total_recorded': len(results)
             }
             
             # Determine session quality
             is_complete = completeness['total_recorded'] >= completeness['total_expected']
-            is_valid = session.left_avg is not None and session.right_avg is not None
+            is_valid = summary and summary['left_avg'] is not None and summary['right_avg'] is not None
             
-            session_data = {
-                'session_id': session.session_id,
-                'timestamp': session.timestamp.isoformat(),
-                'date': session.timestamp.strftime('%Y-%m-%d'),
-                'time': session.timestamp.strftime('%H:%M:%S'),
+            session_entry = {
+                'session_id': session_id,
+                'timestamp': timestamp.isoformat(),
+                'date': timestamp.strftime('%Y-%m-%d'),
+                'time': timestamp.strftime('%H:%M:%S'),
                 'summary': {
-                    'left_avg': session.left_avg,
-                    'right_avg': session.right_avg,
-                    'dissimilarity': session.dissimilarity,
-                    'asymmetry_detected': session.dissimilarity >= 20 if session.dissimilarity else False
+                    'left_avg': summary['left_avg'] if summary else None,
+                    'right_avg': summary['right_avg'] if summary else None,
+                    'dissimilarity': summary['dissimilarity'] if summary else None,
+                    'asymmetry_detected': (summary['dissimilarity'] >= 20) if (summary and summary['dissimilarity']) else False
                 },
                 'thresholds': thresholds,
                 'metadata': {
@@ -677,36 +741,28 @@ def get_test_history():
                     'is_complete': is_complete,
                     'is_valid': is_valid,
                     'completeness': completeness,
-                    'frequency_count': frequency_count
+                    'frequency_count': len(results)
                 }
             }
             
-            history.append(session_data)
+            history.append(session_entry)
         
         # Calculate summary statistics
-        if history:
-            recent_sessions = [s for s in history if 
-                             (db.func.current_timestamp() - sessions[history.index(s)].timestamp).days <= 30]
-            
-            summary_stats = {
-                'total_sessions': total_sessions,
-                'returned_sessions': len(history),
-                'recent_sessions_30d': len(recent_sessions),
-                'has_more': (offset + len(history)) < total_sessions,
-                'pagination': {
-                    'limit': limit,
-                    'offset': offset,
-                    'next_offset': offset + limit if (offset + len(history)) < total_sessions else None
-                }
+        from datetime import datetime, timedelta
+        thirty_days_ago = datetime.now() - timedelta(days=30)
+        recent_sessions = [s for s in sessions_list if s['timestamp'] >= thirty_days_ago]
+        
+        summary_stats = {
+            'total_sessions': total_sessions,
+            'returned_sessions': len(history),
+            'recent_sessions_30d': len(recent_sessions),
+            'has_more': (offset + len(history)) < total_sessions,
+            'pagination': {
+                'limit': limit,
+                'offset': offset,
+                'next_offset': offset + limit if (offset + len(history)) < total_sessions else None
             }
-        else:
-            summary_stats = {
-                'total_sessions': 0,
-                'returned_sessions': 0,
-                'recent_sessions_30d': 0,
-                'has_more': False,
-                'pagination': {'limit': limit, 'offset': offset, 'next_offset': None}
-            }
+        }
         
         logger.info(f"Retrieved {len(history)} test sessions for authenticated user {user_id}")
         
@@ -754,17 +810,17 @@ def get_session_details(session_id):
         if user.auth_type != 'authenticated':
             return jsonify({'error': 'Session details only available for authenticated users'}), 403
         
-        # Find the session and verify ownership
-        session = ScreeningSession.query.filter_by(
+        # Find all results for this session and verify ownership
+        results = ScreeningSessions.query.filter_by(
             session_id=session_id, 
             user_id=user.id
-        ).first()
+        ).all()
         
-        if not session:
+        if not results:
             return jsonify({'error': 'Session not found or access denied'}), 404
         
-        # Get all results for this session
-        results = ScreeningResult.query.filter_by(session_id=session_id).all()
+        # Get session summary
+        summary = ScreeningSessions.get_session_summary(session_id)
         
         # Organize detailed results
         detailed_results = []
@@ -775,19 +831,25 @@ def get_session_details(session_id):
             thresholds[result.ear][result.frequency_hz] = result.threshold_db
         
         session_data = {
-            'session': session.to_dict(),
+            'session': {
+                'session_id': session_id,
+                'timestamp': results[0].timestamp.isoformat(),
+                'user_id': user.id,
+                'summary': summary
+            },
             'thresholds': thresholds,
             'detailed_results': detailed_results,
             'analysis': {
                 'frequencies_tested': len(set(r.frequency_hz for r in results)),
                 'ears_tested': len(set(r.ear for r in results)),
-                'asymmetry_detected': session.dissimilarity >= 20 if session.dissimilarity else False,
+                'asymmetry_detected': (summary['dissimilarity'] >= 20) if (summary and summary['dissimilarity']) else False,
                 'significant_frequencies': []
             }
         }
         
         # Identify frequencies with significant asymmetry (>15 dB difference)
-        for freq in set(r.frequency_hz for r in results):
+        frequencies = set(r.frequency_hz for r in results)
+        for freq in frequencies:
             left_val = thresholds['left'].get(freq)
             right_val = thresholds['right'].get(freq)
             
@@ -837,14 +899,27 @@ def compare_sessions():
         if not user or user.auth_type != 'authenticated':
             return jsonify({'error': 'Session comparison only available for authenticated users'}), 403
         
-        # Fetch sessions (verify ownership)
-        sessions = ScreeningSession.query.filter(
-            ScreeningSession.session_id.in_(session_ids),
-            ScreeningSession.user_id == user.id
-        ).order_by(ScreeningSession.timestamp.asc()).all()
+        # Fetch session summaries for comparison
+        session_summaries = []
+        for session_id in session_ids:
+            # Verify ownership by checking if any results exist for this user/session
+            results = ScreeningSessions.query.filter_by(
+                session_id=session_id,
+                user_id=user.id
+            ).first()
+            
+            if not results:
+                return jsonify({'error': f'Session {session_id} not found or access denied'}), 404
+            
+            summary = ScreeningSessions.get_session_summary(session_id)
+            if summary:
+                session_summaries.append(summary)
         
-        if len(sessions) != len(session_ids):
-            return jsonify({'error': 'One or more sessions not found or access denied'}), 404
+        if len(session_summaries) != len(session_ids):
+            return jsonify({'error': 'One or more sessions could not be processed'}), 404
+        
+        # Sort by timestamp
+        session_summaries.sort(key=lambda x: x['timestamp'])
         
         # Build comparison data
         comparison = {
@@ -858,22 +933,22 @@ def compare_sessions():
             }
         }
         
-        for session in sessions:
+        for summary in session_summaries:
             comparison['sessions'].append({
-                'session_id': session.session_id,
-                'timestamp': session.timestamp.isoformat(),
-                'left_avg': session.left_avg,
-                'right_avg': session.right_avg,
-                'dissimilarity': session.dissimilarity
+                'session_id': summary['session_id'],
+                'timestamp': summary['timestamp'].isoformat(),
+                'left_avg': summary['left_avg'],
+                'right_avg': summary['right_avg'],
+                'dissimilarity': summary['dissimilarity']
             })
             
-            comparison['trends']['left_avg_trend'].append(session.left_avg)
-            comparison['trends']['right_avg_trend'].append(session.right_avg)
-            comparison['trends']['dissimilarity_trend'].append(session.dissimilarity)
+            comparison['trends']['left_avg_trend'].append(summary['left_avg'])
+            comparison['trends']['right_avg_trend'].append(summary['right_avg'])
+            comparison['trends']['dissimilarity_trend'].append(summary['dissimilarity'])
         
         # Calculate time span
-        if len(sessions) > 1:
-            time_span = sessions[-1].timestamp - sessions[0].timestamp
+        if len(session_summaries) > 1:
+            time_span = session_summaries[-1]['timestamp'] - session_summaries[0]['timestamp']
             comparison['trends']['time_span_days'] = time_span.days
         
         return jsonify(comparison)
@@ -887,44 +962,49 @@ def save_screening_session(user_id, thresholds, left_avg, right_avg, dissimilari
     """
     Save a completed screening session for authenticated users only.
     Guest sessions are never saved to maintain privacy.
+    
+    Creates individual rows in screening_sessions table for each frequency/ear combination.
     """
     try:
         user = User.query.get(user_id)
         if not user or user.auth_type != 'authenticated':
-            logger.debug(f"Skipping session save for user {user_id} - not authenticated")
+            logger.debug(f"Skipping session save for user {user_id} - not authenticated (type: {user.auth_type if user else 'user not found'})")
             return None
         
         # Generate unique session ID
         session_id = str(uuid.uuid4())
+        current_timestamp = db.func.current_timestamp()
         
-        # Create screening session
-        session = ScreeningSession(
-            session_id=session_id,
-            user_id=user_id,
-            left_avg=left_avg,
-            right_avg=right_avg,
-            dissimilarity=dissimilarity
-        )
-        db.session.add(session)
-        
-        # Save individual frequency results
+        # Save individual frequency results as separate rows
+        session_rows = []
         for ear in ['left', 'right']:
             for freq_str, threshold in thresholds.get(ear, {}).items():
                 try:
                     frequency = int(freq_str)
-                    result = ScreeningResult(
+                    threshold_value = float(threshold)
+                    
+                    # Create a row for this frequency/ear combination
+                    session_row = ScreeningSessions(
                         session_id=session_id,
+                        user_id=user_id,
+                        timestamp=current_timestamp,
                         ear=ear,
                         frequency_hz=frequency,
-                        threshold_db=float(threshold)
+                        threshold_db=threshold_value
                     )
-                    db.session.add(result)
+                    session_rows.append(session_row)
+                    db.session.add(session_row)
+                    
                 except (ValueError, TypeError) as e:
                     logger.warning(f"Invalid threshold data for {ear} ear at {freq_str}Hz: {e}")
                     continue
         
+        if not session_rows:
+            logger.warning(f"No valid threshold data to save for user {user_id}")
+            return None
+        
         db.session.commit()
-        logger.info(f"Screening session saved: {session_id} for user {user_id}")
+        logger.info(f"Screening session saved: {session_id} for user {user_id} ({len(session_rows)} frequency results)")
         return session_id
         
     except Exception as e:
