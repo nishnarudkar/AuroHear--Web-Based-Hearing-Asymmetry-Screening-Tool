@@ -776,6 +776,11 @@ except Exception as e:
 
 
 # --- Core Application Routes ---
+@app.route('/favicon.ico')
+def favicon():
+    """Serve favicon to prevent 404 errors"""
+    return '', 204  # No Content response
+
 @app.route('/')
 def index():
     return render_template('index.html', 

@@ -75,8 +75,8 @@ function updateUserState(userData) {
 async function checkAuthenticationStatus() {
     try {
         // Check if user is authenticated with Supabase
-        if (supabase) {
-            const { data: { session } } = await supabase.auth.getSession();
+        if (supabaseClient) {
+            const { data: { session } } = await supabaseClient.auth.getSession();
             if (session?.user) {
                 logDebug('Supabase session found, checking backend sync');
                 const response = await fetchWithTimeout(`/auth/status?supabase_id=${session.user.id}`, {
@@ -526,10 +526,10 @@ function playChannelTest(channel) {
 /* -----------------------
    Supabase & Auth Logic
    ----------------------- */
-let supabase = null;
+let supabaseClient = null;
 if (window.SUPABASE_URL && window.SUPABASE_KEY) {
     try {
-        supabase = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_KEY);
+        supabaseClient = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_KEY);
         logDebug('Supabase client initialized');
     } catch (e) {
         console.error('Supabase init error (check CDN/Keys):', e);
@@ -727,7 +727,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function onAuthSubmit(e) {
     console.log('Auth form submitted!');
     e.preventDefault();
-    if (!supabase) {
+    if (!supabaseClient) {
         console.error('Supabase not available');
         showError('Supabase not configured correctly.');
         return;
@@ -743,7 +743,7 @@ async function onAuthSubmit(e) {
         let authUser = null;
         if (isSignUp) {
             // REGISTER
-            const { data, error } = await supabase.auth.signUp({
+            const { data, error } = await supabaseClient.auth.signUp({
                 email: email,
                 password: password,
             });
@@ -766,7 +766,7 @@ async function onAuthSubmit(e) {
             }
         } else {
             // SIGN IN
-            const { data, error } = await supabase.auth.signInWithPassword({
+            const { data, error } = await supabaseClient.auth.signInWithPassword({
                 email: email,
                 password: password,
             });
