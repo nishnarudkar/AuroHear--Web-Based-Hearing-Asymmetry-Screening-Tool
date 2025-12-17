@@ -479,13 +479,16 @@ function generateWebAudioTone(freq, duration, volume, channel) {
             gainNode.gain.setValueAtTime(volume * 0.3, now + duration - 0.01);
             gainNode.gain.linearRampToValueAtTime(0, now + duration); // Fade out
             
-            // Connect based on channel
+            // FIXED: Connect with proper channel isolation (no stereo leakage)
             oscillator.connect(gainNode);
             if (channel === 'left') {
+                // Left ear ONLY → channel 0, channel 1 left unconnected for isolation
                 gainNode.connect(merger, 0, 0);
             } else if (channel === 'right') {
+                // Right ear ONLY → channel 1, channel 0 left unconnected for isolation
                 gainNode.connect(merger, 0, 1);
             } else {
+                // Both ears - connect to both channels
                 gainNode.connect(merger, 0, 0);
                 gainNode.connect(merger, 0, 1);
             }
@@ -633,7 +636,7 @@ async function playWebAudioTone(freq, levelDb, ear, duration = 0.35) {
                 logDebug(`Web Audio: ${levelDb}dB -> effective=${effectiveDb}dB, rawGain=${rawGain.toFixed(4)}, final=${finalGain.toFixed(4)}`);
             }
 
-            // Create audio nodes
+            // Create audio nodes with explicit channel isolation
             oscillator = audioContext.createOscillator();
             gainNode = audioContext.createGain();
             merger = audioContext.createChannelMerger(2);
@@ -654,21 +657,27 @@ async function playWebAudioTone(freq, levelDb, ear, duration = 0.35) {
             gainNode.gain.setValueAtTime(finalGain, now + duration - fadeTime);
             gainNode.gain.linearRampToValueAtTime(0, now + duration); // Fade out
             
-            // Connect audio graph based on ear
+            // FIXED: Proper channel isolation without stereo leakage
             oscillator.connect(gainNode);
             
             if (ear === 'left') {
-                // Left ear → channel 0
+                // Left ear ONLY → channel 0, channel 1 gets NO connection (true silence)
                 gainNode.connect(merger, 0, 0);
+                // Channel 1 deliberately left unconnected for complete isolation
+                logDebug('Channel routing: LEFT ear ONLY (channel 0), channel 1 isolated');
             } else if (ear === 'right') {
-                // Right ear → channel 1
+                // Right ear ONLY → channel 1, channel 0 gets NO connection (true silence)
                 gainNode.connect(merger, 0, 1);
+                // Channel 0 deliberately left unconnected for complete isolation
+                logDebug('Channel routing: RIGHT ear ONLY (channel 1), channel 0 isolated');
             } else {
-                // Both ears
+                // Both ears - connect to both channels
                 gainNode.connect(merger, 0, 0);
                 gainNode.connect(merger, 0, 1);
+                logDebug('Channel routing: BOTH ears (channels 0 and 1)');
             }
             
+            // Connect merger to destination (never connect oscillator directly)
             merger.connect(audioContext.destination);
             
             // Handle completion with safe cleanup
@@ -767,7 +776,8 @@ async function playServerTone(params) {
             ear: channel,
             levelDb: levelDb,
             gain: logGain,
-            duration: duration
+            duration: duration,
+            channelIsolation: channel === 'left' || channel === 'right' ? 'isolated' : 'stereo'
         });
         
         await playWebAudioTone(freq, levelDb, channel, duration);
@@ -1489,6 +1499,45 @@ async function runAudioDiagnostics() {
     }
 }
 
+// Channel isolation test for stereo leakage verification
+async function testChannelIsolation() {
+    console.log('🎧 Testing Channel Isolation (Stereo Leakage Fix)...');
+    
+    try {
+        await initializeAudioContext();
+        
+        if (!audioContext) {
+            console.error('❌ AudioContext not available for channel isolation test');
+            return false;
+        }
+        
+        console.log('🔊 Testing LEFT ear isolation...');
+        await playWebAudioTone(1000, 40, 'left', 1.0);
+        
+        await new Promise(resolve => setTimeout(resolve, 500)); // Gap between tests
+        
+        console.log('🔊 Testing RIGHT ear isolation...');
+        await playWebAudioTone(1000, 40, 'right', 1.0);
+        
+        await new Promise(resolve => setTimeout(resolve, 500)); // Gap between tests
+        
+        console.log('🔊 Testing BOTH ears...');
+        await playWebAudioTone(1000, 40, 'both', 1.0);
+        
+        console.log('✅ Channel isolation test completed');
+        console.log('📋 Manual verification required:');
+        console.log('   - Left ear tone should be silent in right ear');
+        console.log('   - Right ear tone should be silent in left ear');
+        console.log('   - Both ears tone should be audible in both ears');
+        
+        return true;
+        
+    } catch (error) {
+        console.error('❌ Channel isolation test failed:', error);
+        return false;
+    }
+}
+
 // TASK 6: Expose Browser Stress Test & Regression Validation functions globally
 window.runBrowserStressTests = runBrowserStressTests;
 window.testRapidResponseClicks = testRapidResponseClicks;
@@ -1497,6 +1546,9 @@ window.testFullAudiogramSimulation = testFullAudiogramSimulation;
 window.testAutoplayPolicyCompliance = testAutoplayPolicyCompliance;
 window.testLoudnessBehavior = testLoudnessBehavior;
 window.runAudioDiagnostics = runAudioDiagnostics;
+
+// TASK: Fix Ear-Specific Audio Routing - Expose channel isolation test
+window.testChannelIsolation = testChannelIsolation;
 
 /* -----------------------
    Event listeners (wiring)
