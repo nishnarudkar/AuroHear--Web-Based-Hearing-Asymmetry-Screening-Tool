@@ -37,44 +37,67 @@ const AudioStateManager = {
     // Start tone playback (returns false if already playing or gap not met)
     startTone(toneId) {
         if (this.isTonePlaying) {
-            logDebug(`Tone ${toneId} blocked - tone ${this.activeToneId} already playing`);
+            logAudio('LOCK', { 
+                action: 'blocked', 
+                toneId: toneId, 
+                activeTone: this.activeToneId 
+            });
             return false;
         }
         
         if (!this.canStartNewTone()) {
             const waitTime = this.getRequiredWaitTime();
-            logDebug(`Tone ${toneId} blocked - inter-tone gap required (${waitTime}ms remaining)`);
+            logAudio('GAP', { 
+                toneId: toneId, 
+                waitTime: waitTime, 
+                required: INTER_TONE_GAP_MS 
+            });
             return false;
         }
         
         this.isTonePlaying = true;
         this.activeToneId = toneId;
-        logDebug(`Tone ${toneId} started - audio state locked`);
+        logAudio('LOCK', { 
+            action: 'acquired', 
+            toneId: toneId 
+        });
         return true;
     },
     
     // Stop tone playback (only if this tone is active)
     stopTone(toneId) {
         if (this.activeToneId !== toneId) {
-            logDebug(`Tone ${toneId} cannot stop - not the active tone (active: ${this.activeToneId})`);
+            logAudio('LOCK', { 
+                action: 'blocked', 
+                toneId: toneId, 
+                activeTone: this.activeToneId 
+            });
             return false;
         }
         
         this.isTonePlaying = false;
         this.activeToneId = null;
         this.lastToneEndTime = Date.now();
-        logDebug(`Tone ${toneId} stopped - audio state unlocked, inter-tone gap started`);
+        logAudio('LOCK', { 
+            action: 'released', 
+            toneId: toneId 
+        });
         return true;
     },
     
     // Force reset (for error recovery)
     forceReset() {
         const wasPlaying = this.isTonePlaying;
+        const previousTone = this.activeToneId;
         this.isTonePlaying = false;
         this.activeToneId = null;
         this.lastToneEndTime = Date.now();
         if (wasPlaying) {
-            logDebug('Audio state force reset - unlocked with inter-tone gap');
+            logAudio('LOCK', { 
+                action: 'released', 
+                toneId: previousTone, 
+                reason: 'force_reset' 
+            });
         }
     },
     
@@ -119,6 +142,60 @@ let userAgeGroup = '';
 
 function logDebug(message) {
     if (debugMode) console.log(`[DEBUG] ${message}`);
+}
+
+// Structured audio logging for production debugging
+function logAudio(action, details = {}) {
+    const timestamp = new Date().toISOString().split('T')[1].split('.')[0]; // HH:MM:SS format
+    const toneId = details.toneId ? `#${details.toneId}` : '';
+    
+    let logMessage = `[AUDIO${toneId}] ${action}`;
+    
+    // Add relevant details based on action type
+    switch (action) {
+        case 'START':
+            if (details.freq) logMessage += ` freq=${details.freq}Hz`;
+            if (details.ear) logMessage += ` ear=${details.ear}`;
+            if (details.levelDb !== undefined) logMessage += ` dB=${details.levelDb}`;
+            if (details.gain !== undefined) logMessage += ` gain=${details.gain.toFixed(4)}`;
+            if (details.duration) logMessage += ` duration=${details.duration}s`;
+            break;
+            
+        case 'STOP':
+            if (details.reason) logMessage += ` reason=${details.reason}`;
+            if (details.duration) logMessage += ` after=${details.duration}ms`;
+            break;
+            
+        case 'GAP':
+            if (details.waitTime) logMessage += ` ${details.waitTime}ms`;
+            if (details.required) logMessage += ` (required=${details.required}ms)`;
+            break;
+            
+        case 'LOCK':
+            if (details.action === 'acquired') logMessage += ' acquired';
+            else if (details.action === 'released') logMessage += ' released';
+            else if (details.action === 'blocked') logMessage += ' blocked';
+            if (details.activeTone) logMessage += ` (active=${details.activeTone})`;
+            break;
+            
+        case 'ERROR':
+            if (details.error) logMessage += ` ${details.error}`;
+            if (details.fallback) logMessage += ` fallback=${details.fallback}`;
+            break;
+            
+        case 'CLEANUP':
+            if (details.nodes) logMessage += ` nodes=${details.nodes}`;
+            if (details.emergency) logMessage += ' EMERGENCY';
+            break;
+    }
+    
+    // Always log audio events (even in production) for debugging
+    console.log(`${timestamp} ${logMessage}`);
+    
+    // Also log to debug if enabled
+    if (debugMode) {
+        logDebug(`Audio: ${action} - ${JSON.stringify(details)}`);
+    }
 }
 
 /* -----------------------
@@ -517,7 +594,9 @@ async function playWebAudioTone(freq, levelDb, ear, duration = 0.35) {
                 gainNode = null;
                 merger = null;
 
-                logDebug('Web Audio cleanup completed');
+                logAudio('CLEANUP', {
+                    nodes: 'oscillator+gain+merger'
+                });
             } catch (error) {
                 console.warn('Cleanup error (non-fatal):', error);
             }
@@ -594,7 +673,12 @@ async function playWebAudioTone(freq, levelDb, ear, duration = 0.35) {
             
             // Handle completion with safe cleanup
             oscillator.onended = () => {
-                logDebug(`Web Audio tone completed naturally: ${freq}Hz, ${levelDb}dB HL, ${ear} ear`);
+                logAudio('STOP', {
+                    freq: freq,
+                    ear: ear,
+                    levelDb: levelDb,
+                    reason: 'natural_end'
+                });
                 safeCleanup();
                 resolve();
             };
@@ -605,7 +689,13 @@ async function playWebAudioTone(freq, levelDb, ear, duration = 0.35) {
             
             // Fallback timeout with cleanup
             timeoutId = setTimeout(() => {
-                logDebug('Web Audio tone timeout - cleaning up');
+                logAudio('STOP', {
+                    freq: freq,
+                    ear: ear,
+                    levelDb: levelDb,
+                    reason: 'timeout',
+                    duration: (duration * 1000) + 200
+                });
                 safeCleanup();
                 resolve();
             }, (duration * 1000) + 200); // Extra buffer for cleanup
@@ -631,7 +721,11 @@ async function playServerTone(params) {
     // Enforce inter-tone silence gap
     const waitTime = AudioStateManager.getRequiredWaitTime();
     if (waitTime > 0) {
-        logDebug(`Tone ${toneId} waiting ${waitTime}ms for inter-tone gap`);
+        logAudio('GAP', { 
+            toneId: toneId, 
+            waitTime: waitTime, 
+            required: INTER_TONE_GAP_MS 
+        });
         await new Promise(resolve => setTimeout(resolve, waitTime));
     }
     
@@ -654,17 +748,44 @@ async function playServerTone(params) {
         const levelDb = params.level_db || 40;
         const channel = params.channel || 'both';
         
-        logDebug(`Playing Web Audio tone ${toneId}: ${freq}Hz, ${levelDb}dB HL, ${channel} ear`);
+        // Calculate gain for logging (same calculation as in playWebAudioTone)
+        let logGain = 0;
+        if (levelDb > 0) {
+            const REFERENCE_DB = 50;
+            const effectiveDb = levelDb - REFERENCE_DB;
+            const rawGain = Math.pow(10, effectiveDb / 20);
+            const attenuationFactor = 0.4;
+            const adjustedGain = rawGain * attenuationFactor;
+            const clampedGain = Math.max(0.0001, Math.min(0.15, adjustedGain));
+            const safetyFactor = 0.7;
+            logGain = calibrationVolume * clampedGain * safetyFactor;
+        }
+        
+        logAudio('START', {
+            toneId: toneId,
+            freq: freq,
+            ear: channel,
+            levelDb: levelDb,
+            gain: logGain,
+            duration: duration
+        });
         
         await playWebAudioTone(freq, levelDb, channel, duration);
         
-        logDebug(`Web Audio tone ${toneId} completed successfully`);
+        logAudio('STOP', {
+            toneId: toneId,
+            reason: 'completed'
+        });
         
     } catch (error) {
-        console.error(`Web Audio tone ${toneId} failed:`, error);
+        logAudio('ERROR', {
+            toneId: toneId,
+            error: 'web_audio_failed',
+            fallback: 'legacy_server',
+            details: error.message
+        });
         
         // Fallback to legacy server-generated audio if Web Audio fails
-        logDebug(`Falling back to server audio for tone ${toneId}`);
         await playServerToneLegacy(params, toneId);
         
     } finally {
@@ -677,7 +798,15 @@ async function playServerTone(params) {
 async function playServerToneLegacy(params, toneId) {
     const url = new URL('/tone', window.location);
     Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v.toString()));
-    logDebug(`Legacy audio fallback for tone ${toneId}: ${JSON.stringify(params)}`);
+    
+    logAudio('START', {
+        toneId: toneId,
+        freq: params.freq || 1000,
+        ear: params.channel || 'both',
+        levelDb: params.level_db || 40,
+        method: 'legacy_server',
+        duration: params.duration || 0.35
+    });
     
     return new Promise((resolve) => {
         const audio = new Audio();
@@ -728,13 +857,21 @@ async function playServerToneLegacy(params, toneId) {
         
         // Set up event handlers
         audio.onended = () => {
-            logDebug('Legacy audio playback ended normally');
+            logAudio('STOP', {
+                toneId: toneId,
+                method: 'legacy_server',
+                reason: 'ended_normally'
+            });
             resolveOnce();
         };
         
         audio.onerror = (e) => {
-            console.error('Legacy audio error:', e);
-            logDebug('Legacy audio failed completely');
+            logAudio('ERROR', {
+                toneId: toneId,
+                error: 'legacy_audio_failed',
+                method: 'legacy_server',
+                details: e.message || 'unknown_error'
+            });
             resolveOnce(); // Give up gracefully
         };
         
@@ -851,7 +988,12 @@ function unregisterAudioNodes(oscillator, gainNode, merger) {
 
 // Safe emergency stop for all active tones
 function stopAllActiveTones() {
-    logDebug('Emergency stop: Cleaning up all active tones');
+    const nodeCount = activeOscillators.size + activeGainNodes.size + activeMergers.size;
+    
+    logAudio('CLEANUP', {
+        emergency: true,
+        nodes: `${activeOscillators.size}osc+${activeGainNodes.size}gain+${activeMergers.size}merger`
+    });
     
     // Stop all active oscillators safely
     activeOscillators.forEach(oscillator => {
@@ -862,7 +1004,10 @@ function stopAllActiveTones() {
                 oscillator.disconnect();
             }
         } catch (e) {
-            logDebug('Oscillator already stopped/disconnected');
+            logAudio('ERROR', {
+                error: 'oscillator_cleanup_failed',
+                details: e.message
+            });
         }
     });
     
@@ -871,7 +1016,10 @@ function stopAllActiveTones() {
         try {
             gainNode.disconnect();
         } catch (e) {
-            logDebug('Gain node already disconnected');
+            logAudio('ERROR', {
+                error: 'gain_cleanup_failed',
+                details: e.message
+            });
         }
     });
     
@@ -880,7 +1028,10 @@ function stopAllActiveTones() {
         try {
             merger.disconnect();
         } catch (e) {
-            logDebug('Merger already disconnected');
+            logAudio('ERROR', {
+                error: 'merger_cleanup_failed',
+                details: e.message
+            });
         }
     });
     
@@ -892,7 +1043,11 @@ function stopAllActiveTones() {
     // Force reset audio state
     AudioStateManager.forceReset();
     
-    logDebug('Emergency stop completed - all tones cleaned up');
+    logAudio('CLEANUP', {
+        emergency: true,
+        nodes: 'all_cleared',
+        result: 'completed'
+    });
 }
 
 // Audio state debugging utilities
