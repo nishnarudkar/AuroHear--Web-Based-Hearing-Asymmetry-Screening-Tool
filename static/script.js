@@ -5,6 +5,62 @@ let userId = null;
 let calibrationVolume = 0.2; // Reduced default calibration volume for better control
 const debugMode = true;
 
+// Global Audio Playback State Manager
+const AudioStateManager = {
+    isTonePlaying: false,
+    activeToneId: null,
+    toneCounter: 0,
+    
+    // Generate unique tone ID
+    generateToneId() {
+        return ++this.toneCounter;
+    },
+    
+    // Start tone playback (returns false if already playing)
+    startTone(toneId) {
+        if (this.isTonePlaying) {
+            logDebug(`Tone ${toneId} blocked - tone ${this.activeToneId} already playing`);
+            return false;
+        }
+        
+        this.isTonePlaying = true;
+        this.activeToneId = toneId;
+        logDebug(`Tone ${toneId} started - audio state locked`);
+        return true;
+    },
+    
+    // Stop tone playback (only if this tone is active)
+    stopTone(toneId) {
+        if (this.activeToneId !== toneId) {
+            logDebug(`Tone ${toneId} cannot stop - not the active tone (active: ${this.activeToneId})`);
+            return false;
+        }
+        
+        this.isTonePlaying = false;
+        this.activeToneId = null;
+        logDebug(`Tone ${toneId} stopped - audio state unlocked`);
+        return true;
+    },
+    
+    // Force reset (for error recovery)
+    forceReset() {
+        const wasPlaying = this.isTonePlaying;
+        this.isTonePlaying = false;
+        this.activeToneId = null;
+        if (wasPlaying) {
+            logDebug('Audio state force reset - unlocked');
+        }
+    },
+    
+    // Get current state
+    getState() {
+        return {
+            isTonePlaying: this.isTonePlaying,
+            activeToneId: this.activeToneId
+        };
+    }
+};
+
 // Catch trial system for response reliability
 let catchTrialData = {
     totalCatchTrials: 0,
@@ -298,12 +354,21 @@ function generateWebAudioTone(freq, duration, volume, channel) {
 }
 
 function playServerTone(params) {
+    // Generate unique tone ID and check if playback is allowed
+    const toneId = AudioStateManager.generateToneId();
+    
+    if (!AudioStateManager.startTone(toneId)) {
+        // Another tone is already playing, reject this request
+        logDebug(`Tone playback blocked - another tone is active`);
+        return Promise.resolve(); // Resolve immediately to prevent blocking
+    }
+    
     // Initialize audio context on first use
     initializeAudioContext();
     
     const url = new URL('/tone', window.location);
     Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v.toString()));
-    logDebug(`Playing tone: ${JSON.stringify(params)}`);
+    logDebug(`Playing tone ${toneId}: ${JSON.stringify(params)}`);
     
     return new Promise((resolve) => {
         const audio = new Audio();
@@ -312,6 +377,7 @@ function playServerTone(params) {
         const resolveOnce = () => {
             if (!resolved) {
                 resolved = true;
+                AudioStateManager.stopTone(toneId); // Release audio state
                 resolve();
             }
         };
@@ -496,6 +562,12 @@ async function playTestTone(freq, channel, levelDb) {
 
 /* Channel test button (device check) */
 function playChannelTest(channel) {
+    // Check if audio is already playing before attempting channel test
+    if (AudioStateManager.isTonePlaying) {
+        logDebug('Channel test blocked - another tone is playing');
+        return;
+    }
+    
     const status = document.getElementById('channel-status');
     if (status) {
         status.textContent = `Playing in ${channel.toUpperCase()} ear — listen...`;
@@ -519,6 +591,22 @@ function playChannelTest(channel) {
         setActiveEar(null);
     }, 500));
 }
+
+/* -----------------------
+   Audio State Management Utilities
+   ----------------------- */
+function resetAudioState() {
+    /**
+     * Emergency audio state reset function
+     * Use this if audio gets stuck in playing state
+     */
+    AudioStateManager.forceReset();
+    logDebug('Audio state manually reset');
+}
+
+// Expose audio state utilities for debugging
+window.AudioStateManager = AudioStateManager;
+window.resetAudioState = resetAudioState;
 
 /* -----------------------
    Event listeners (wiring)
@@ -560,6 +648,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (isAuthenticated) {
         showScreen('welcome');
     }
+    
+    // Audio state monitoring - periodic check to prevent stuck states
+    setInterval(() => {
+        const state = AudioStateManager.getState();
+        if (state.isTonePlaying && debugMode) {
+            logDebug(`Audio state check: tone ${state.activeToneId} still playing`);
+        }
+    }, 5000); // Check every 5 seconds in debug mode
     
     // Auth Toggles
     const toggleSignIn = document.getElementById('toggle-signin');
@@ -632,6 +728,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const playToneBtn = document.getElementById('play-tone-btn');
     if (playToneBtn) playToneBtn.addEventListener('click', () => {
+        // Check if audio is already playing before attempting calibration tone
+        if (AudioStateManager.isTonePlaying) {
+            logDebug('Calibration tone blocked - another tone is playing');
+            return;
+        }
+        
         // Professional calibration - controlled for audiometric accuracy
         playServerTone({ 
             freq: 1000, 
@@ -674,8 +776,22 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const yesBtn = document.getElementById('yes-btn');
     const noBtn = document.getElementById('no-btn');
-    if (yesBtn) yesBtn.addEventListener('click', () => submitResponse(true));
-    if (noBtn) noBtn.addEventListener('click', () => submitResponse(false));
+    if (yesBtn) yesBtn.addEventListener('click', () => {
+        // Prevent response submission while audio is still playing
+        if (AudioStateManager.isTonePlaying) {
+            logDebug('Response blocked - audio still playing');
+            return;
+        }
+        submitResponse(true);
+    });
+    if (noBtn) noBtn.addEventListener('click', () => {
+        // Prevent response submission while audio is still playing
+        if (AudioStateManager.isTonePlaying) {
+            logDebug('Response blocked - audio still playing');
+            return;
+        }
+        submitResponse(false);
+    });
 
     document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
@@ -2845,16 +2961,24 @@ function enableResponseButtons(enable = true) {
     const yesBtn = document.getElementById('yes-btn');
     const noBtn = document.getElementById('no-btn');
     
-    if (yesBtn) yesBtn.disabled = !enable;
-    if (noBtn) noBtn.disabled = !enable;
+    // Consider both the enable parameter and audio state
+    const shouldEnable = enable && !AudioStateManager.isTonePlaying;
+    
+    if (yesBtn) yesBtn.disabled = !shouldEnable;
+    if (noBtn) noBtn.disabled = !shouldEnable;
     
     // Update button appearance for accessibility
-    if (enable) {
+    if (shouldEnable) {
         yesBtn?.classList.add('btn-ready');
         noBtn?.classList.add('btn-ready');
     } else {
         yesBtn?.classList.remove('btn-ready');
         noBtn?.classList.remove('btn-ready');
+    }
+    
+    // Add visual indicator if blocked by audio state
+    if (enable && AudioStateManager.isTonePlaying) {
+        logDebug('Response buttons disabled - audio playing');
     }
 }
 
