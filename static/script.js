@@ -5,21 +5,45 @@ let userId = null;
 let calibrationVolume = 0.2; // Reduced default calibration volume for better control
 const debugMode = true;
 
+// Audio timing constants
+const INTER_TONE_GAP_MS = 300; // Mandatory silence gap between tones
+
 // Global Audio Playback State Manager
 const AudioStateManager = {
     isTonePlaying: false,
     activeToneId: null,
     toneCounter: 0,
+    lastToneEndTime: 0,
     
     // Generate unique tone ID
     generateToneId() {
         return ++this.toneCounter;
     },
     
-    // Start tone playback (returns false if already playing)
+    // Check if enough time has passed since last tone
+    canStartNewTone() {
+        const now = Date.now();
+        const timeSinceLastTone = now - this.lastToneEndTime;
+        return timeSinceLastTone >= INTER_TONE_GAP_MS;
+    },
+    
+    // Calculate required wait time for inter-tone gap
+    getRequiredWaitTime() {
+        const now = Date.now();
+        const timeSinceLastTone = now - this.lastToneEndTime;
+        return Math.max(0, INTER_TONE_GAP_MS - timeSinceLastTone);
+    },
+    
+    // Start tone playback (returns false if already playing or gap not met)
     startTone(toneId) {
         if (this.isTonePlaying) {
             logDebug(`Tone ${toneId} blocked - tone ${this.activeToneId} already playing`);
+            return false;
+        }
+        
+        if (!this.canStartNewTone()) {
+            const waitTime = this.getRequiredWaitTime();
+            logDebug(`Tone ${toneId} blocked - inter-tone gap required (${waitTime}ms remaining)`);
             return false;
         }
         
@@ -38,7 +62,8 @@ const AudioStateManager = {
         
         this.isTonePlaying = false;
         this.activeToneId = null;
-        logDebug(`Tone ${toneId} stopped - audio state unlocked`);
+        this.lastToneEndTime = Date.now();
+        logDebug(`Tone ${toneId} stopped - audio state unlocked, inter-tone gap started`);
         return true;
     },
     
@@ -47,8 +72,9 @@ const AudioStateManager = {
         const wasPlaying = this.isTonePlaying;
         this.isTonePlaying = false;
         this.activeToneId = null;
+        this.lastToneEndTime = Date.now();
         if (wasPlaying) {
-            logDebug('Audio state force reset - unlocked');
+            logDebug('Audio state force reset - unlocked with inter-tone gap');
         }
     },
     
@@ -56,7 +82,10 @@ const AudioStateManager = {
     getState() {
         return {
             isTonePlaying: this.isTonePlaying,
-            activeToneId: this.activeToneId
+            activeToneId: this.activeToneId,
+            lastToneEndTime: this.lastToneEndTime,
+            canStartNewTone: this.canStartNewTone(),
+            requiredWaitTime: this.getRequiredWaitTime()
         };
     }
 };
@@ -353,14 +382,27 @@ function generateWebAudioTone(freq, duration, volume, channel) {
     });
 }
 
-function playServerTone(params) {
-    // Generate unique tone ID and check if playback is allowed
+async function playServerTone(params) {
+    // Generate unique tone ID
     const toneId = AudioStateManager.generateToneId();
     
-    if (!AudioStateManager.startTone(toneId)) {
-        // Another tone is already playing, reject this request
-        logDebug(`Tone playback blocked - another tone is active`);
+    // Check if another tone is already playing
+    if (AudioStateManager.isTonePlaying) {
+        logDebug(`Tone ${toneId} blocked - another tone is active`);
         return Promise.resolve(); // Resolve immediately to prevent blocking
+    }
+    
+    // Enforce inter-tone silence gap
+    const waitTime = AudioStateManager.getRequiredWaitTime();
+    if (waitTime > 0) {
+        logDebug(`Tone ${toneId} waiting ${waitTime}ms for inter-tone gap`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+    
+    // Now try to start the tone
+    if (!AudioStateManager.startTone(toneId)) {
+        logDebug(`Tone ${toneId} blocked after gap wait - another tone started`);
+        return Promise.resolve();
     }
     
     // Initialize audio context on first use
@@ -561,7 +603,7 @@ async function playTestTone(freq, channel, levelDb) {
 }
 
 /* Channel test button (device check) */
-function playChannelTest(channel) {
+async function playChannelTest(channel) {
     // Check if audio is already playing before attempting channel test
     if (AudioStateManager.isTonePlaying) {
         logDebug('Channel test blocked - another tone is playing');
@@ -580,16 +622,19 @@ function playChannelTest(channel) {
     setActiveEar(channel);
     
     // Enhanced channel test with controlled volume for better audibility
-    playServerTone({ 
+    await playServerTone({ 
         freq: 1000, 
         duration: 1.0,  // Longer duration for better testing
         volume: 1.0,    // Use full scale, let dB system handle volume
         channel: channel,
         level_db: 55    // Moderate dB level for channel testing
-    }).then(() => setTimeout(() => {
+    });
+    
+    // Clean up after tone completes
+    setTimeout(() => {
         if (status) status.textContent = '';
         setActiveEar(null);
-    }, 500));
+    }, 500);
 }
 
 /* -----------------------
@@ -604,9 +649,45 @@ function resetAudioState() {
     logDebug('Audio state manually reset');
 }
 
+// Audio state debugging utilities
+function debugAudioState() {
+    const state = AudioStateManager.getState();
+    console.log('🔊 Audio State Debug:', {
+        isTonePlaying: state.isTonePlaying,
+        activeToneId: state.activeToneId,
+        lastToneEndTime: new Date(state.lastToneEndTime).toISOString(),
+        timeSinceLastTone: Date.now() - state.lastToneEndTime,
+        canStartNewTone: state.canStartNewTone,
+        requiredWaitTime: state.requiredWaitTime,
+        interToneGapMs: INTER_TONE_GAP_MS
+    });
+}
+
+// Test rapid tone requests to verify gap enforcement
+async function testRapidTones() {
+    console.log('🔊 Testing rapid tone requests...');
+    
+    const promises = [];
+    for (let i = 0; i < 3; i++) {
+        promises.push(
+            playServerTone({ 
+                freq: 1000 + (i * 200), 
+                duration: 0.2, 
+                volume: 0.3, 
+                channel: 'both' 
+            })
+        );
+    }
+    
+    await Promise.all(promises);
+    console.log('✅ Rapid tone test completed');
+}
+
 // Expose audio state utilities for debugging
 window.AudioStateManager = AudioStateManager;
 window.resetAudioState = resetAudioState;
+window.debugAudioState = debugAudioState;
+window.testRapidTones = testRapidTones;
 
 /* -----------------------
    Event listeners (wiring)
@@ -727,7 +808,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (backConsentBtn) backConsentBtn.addEventListener('click', () => showScreen('consent'));
 
     const playToneBtn = document.getElementById('play-tone-btn');
-    if (playToneBtn) playToneBtn.addEventListener('click', () => {
+    if (playToneBtn) playToneBtn.addEventListener('click', async () => {
         // Check if audio is already playing before attempting calibration tone
         if (AudioStateManager.isTonePlaying) {
             logDebug('Calibration tone blocked - another tone is playing');
@@ -735,7 +816,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         
         // Professional calibration - controlled for audiometric accuracy
-        playServerTone({ 
+        await playServerTone({ 
             freq: 1000, 
             duration: 1.0, 
             volume: 1.0, 
@@ -3346,6 +3427,23 @@ async function testAudio() {
         console.log('✅ Server tone test passed');
     } catch (e) {
         console.error('❌ Server tone test failed:', e);
+    }
+    
+    console.log('Testing inter-tone gap enforcement...');
+    try {
+        const startTime = Date.now();
+        
+        // First tone
+        await playServerTone({ freq: 800, duration: 0.3, volume: 0.5, channel: 'left' });
+        
+        // Immediate second tone (should be delayed by gap)
+        const gapStartTime = Date.now();
+        await playServerTone({ freq: 1200, duration: 0.3, volume: 0.5, channel: 'right' });
+        const actualGap = Date.now() - gapStartTime;
+        
+        console.log(`✅ Inter-tone gap test passed - actual gap: ${actualGap}ms (required: ${INTER_TONE_GAP_MS}ms)`);
+    } catch (e) {
+        console.error('❌ Inter-tone gap test failed:', e);
     }
     
     if (audioContext) {
