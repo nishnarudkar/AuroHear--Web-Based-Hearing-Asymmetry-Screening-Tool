@@ -530,6 +530,8 @@ async function playWebAudioTone(freq, levelDb, ear, duration = 0.35) {
         let oscillator = null;
         let gainNode = null;
         let merger = null;
+        let silenceOscillator = null;
+        let silenceGain = null;
         let isCleanedUp = false;
         let timeoutId = null;
 
@@ -569,6 +571,26 @@ async function playWebAudioTone(freq, levelDb, ear, duration = 0.35) {
                     }
                 }
 
+                // Safe silence oscillator cleanup
+                if (silenceOscillator) {
+                    try {
+                        silenceOscillator.onended = null;
+                        
+                        if (silenceOscillator.context.state !== 'closed') {
+                            try {
+                                silenceOscillator.stop(); // Graceful scheduled stop
+                            } catch (e) {
+                                // Already stopped
+                            }
+                        }
+                        
+                        silenceOscillator.disconnect();
+                        logDebug('Silence oscillator stopped and disconnected safely');
+                    } catch (e) {
+                        logDebug('Silence oscillator already stopped/disconnected');
+                    }
+                }
+
                 // Safe gain node cleanup
                 if (gainNode) {
                     try {
@@ -576,6 +598,16 @@ async function playWebAudioTone(freq, levelDb, ear, duration = 0.35) {
                         logDebug('Gain node disconnected safely');
                     } catch (e) {
                         logDebug('Gain node already disconnected');
+                    }
+                }
+
+                // Safe silence gain cleanup
+                if (silenceGain) {
+                    try {
+                        silenceGain.disconnect();
+                        logDebug('Silence gain disconnected safely');
+                    } catch (e) {
+                        logDebug('Silence gain already disconnected');
                     }
                 }
 
@@ -594,11 +626,13 @@ async function playWebAudioTone(freq, levelDb, ear, duration = 0.35) {
                 
                 // Clear local references
                 oscillator = null;
+                silenceOscillator = null;
                 gainNode = null;
+                silenceGain = null;
                 merger = null;
 
                 logAudio('CLEANUP', {
-                    nodes: 'oscillator+gain+merger'
+                    nodes: 'oscillator+silenceOsc+gain+silenceGain+merger'
                 });
             } catch (error) {
                 console.warn('Cleanup error (non-fatal):', error);
@@ -636,17 +670,25 @@ async function playWebAudioTone(freq, levelDb, ear, duration = 0.35) {
                 logDebug(`Web Audio: ${levelDb}dB -> effective=${effectiveDb}dB, rawGain=${rawGain.toFixed(4)}, final=${finalGain.toFixed(4)}`);
             }
 
-            // Create audio nodes with explicit channel isolation
+            // Create audio nodes with EXPLICIT silence injection for true isolation
             oscillator = audioContext.createOscillator();
             gainNode = audioContext.createGain();
             merger = audioContext.createChannelMerger(2);
             
+            // Create explicit silence generator for opposite channel
+            silenceOscillator = audioContext.createOscillator();
+            silenceGain = audioContext.createGain();
+            
             // Register nodes for tracking and emergency cleanup
             registerAudioNodes(oscillator, gainNode, merger);
             
-            // Configure oscillator
+            // Configure main oscillator
             oscillator.frequency.setValueAtTime(freq, audioContext.currentTime);
             oscillator.type = 'sine';
+            
+            // Configure silence oscillator (same frequency but zero gain)
+            silenceOscillator.frequency.setValueAtTime(freq, audioContext.currentTime);
+            silenceOscillator.type = 'sine';
             
             // Configure gain with fade envelope for smooth start/stop
             const now = audioContext.currentTime;
@@ -657,21 +699,27 @@ async function playWebAudioTone(freq, levelDb, ear, duration = 0.35) {
             gainNode.gain.setValueAtTime(finalGain, now + duration - fadeTime);
             gainNode.gain.linearRampToValueAtTime(0, now + duration); // Fade out
             
-            // FIXED: Proper channel isolation without stereo leakage
-            oscillator.connect(gainNode);
+            // Configure silence gain (always zero - true silence)
+            silenceGain.gain.setValueAtTime(0, now);
+            silenceGain.gain.setValueAtTime(0, now + duration); // Maintain silence throughout
             
+            // Connect oscillators to their respective gain nodes
+            oscillator.connect(gainNode);
+            silenceOscillator.connect(silenceGain);
+            
+            // CRITICAL FIX: Explicit channel routing with guaranteed silence injection
             if (ear === 'left') {
-                // Left ear ONLY → channel 0, channel 1 gets NO connection (true silence)
+                // Left ear: tone → channel 0, explicit silence → channel 1
                 gainNode.connect(merger, 0, 0);
-                // Channel 1 deliberately left unconnected for complete isolation
-                logDebug('Channel routing: LEFT ear ONLY (channel 0), channel 1 isolated');
+                silenceGain.connect(merger, 0, 1);
+                logDebug('Channel routing: LEFT ear (channel 0) + explicit silence (channel 1)');
             } else if (ear === 'right') {
-                // Right ear ONLY → channel 1, channel 0 gets NO connection (true silence)
+                // Right ear: explicit silence → channel 0, tone → channel 1
+                silenceGain.connect(merger, 0, 0);
                 gainNode.connect(merger, 0, 1);
-                // Channel 0 deliberately left unconnected for complete isolation
-                logDebug('Channel routing: RIGHT ear ONLY (channel 1), channel 0 isolated');
+                logDebug('Channel routing: explicit silence (channel 0) + RIGHT ear (channel 1)');
             } else {
-                // Both ears - connect to both channels
+                // Both ears - connect tone to both channels (no silence needed)
                 gainNode.connect(merger, 0, 0);
                 gainNode.connect(merger, 0, 1);
                 logDebug('Channel routing: BOTH ears (channels 0 and 1)');
@@ -679,6 +727,12 @@ async function playWebAudioTone(freq, levelDb, ear, duration = 0.35) {
             
             // Connect merger to destination (never connect oscillator directly)
             merger.connect(audioContext.destination);
+            
+            // Start both oscillators for ear-specific routing (silence oscillator ensures channel is active)
+            if (ear === 'left' || ear === 'right') {
+                silenceOscillator.start(now);
+                silenceOscillator.stop(now + duration);
+            }
             
             // Handle completion with safe cleanup
             oscillator.onended = () => {
@@ -1501,7 +1555,8 @@ async function runAudioDiagnostics() {
 
 // Channel isolation test for stereo leakage verification
 async function testChannelIsolation() {
-    console.log('🎧 Testing Channel Isolation (Stereo Leakage Fix)...');
+    console.log('🎧 Testing Channel Isolation (Stereo Leakage Fix v2)...');
+    console.log('🔧 Using explicit silence injection method');
     
     try {
         await initializeAudioContext();
@@ -1511,29 +1566,68 @@ async function testChannelIsolation() {
             return false;
         }
         
-        console.log('🔊 Testing LEFT ear isolation...');
-        await playWebAudioTone(1000, 40, 'left', 1.0);
+        console.log('\n🔊 Test 1: LEFT ear isolation (1000Hz, 40dB)');
+        console.log('   Expected: Sound ONLY in left ear, RIGHT ear should be SILENT');
+        await playWebAudioTone(1000, 40, 'left', 2.0);
         
-        await new Promise(resolve => setTimeout(resolve, 500)); // Gap between tests
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Gap between tests
         
-        console.log('🔊 Testing RIGHT ear isolation...');
-        await playWebAudioTone(1000, 40, 'right', 1.0);
+        console.log('\n🔊 Test 2: RIGHT ear isolation (1500Hz, 40dB)');
+        console.log('   Expected: Sound ONLY in right ear, LEFT ear should be SILENT');
+        await playWebAudioTone(1500, 40, 'right', 2.0);
         
-        await new Promise(resolve => setTimeout(resolve, 500)); // Gap between tests
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Gap between tests
         
-        console.log('🔊 Testing BOTH ears...');
-        await playWebAudioTone(1000, 40, 'both', 1.0);
+        console.log('\n🔊 Test 3: BOTH ears (2000Hz, 40dB)');
+        console.log('   Expected: Sound audible in BOTH ears');
+        await playWebAudioTone(2000, 40, 'both', 2.0);
         
-        console.log('✅ Channel isolation test completed');
-        console.log('📋 Manual verification required:');
-        console.log('   - Left ear tone should be silent in right ear');
-        console.log('   - Right ear tone should be silent in left ear');
-        console.log('   - Both ears tone should be audible in both ears');
+        console.log('\n✅ Channel isolation test completed');
+        console.log('📋 CRITICAL: Manual verification required with headphones:');
+        console.log('   ✓ Test 1: Left ear tone must be COMPLETELY SILENT in right ear');
+        console.log('   ✓ Test 2: Right ear tone must be COMPLETELY SILENT in left ear');
+        console.log('   ✓ Test 3: Both ears tone should be audible in both ears');
+        console.log('\n🚨 If you hear ANY sound in the opposite ear during Tests 1-2, the bug is NOT fixed!');
         
         return true;
         
     } catch (error) {
         console.error('❌ Channel isolation test failed:', error);
+        return false;
+    }
+}
+
+// Advanced channel isolation test with frequency sweep
+async function testChannelIsolationAdvanced() {
+    console.log('🎧 Advanced Channel Isolation Test (Frequency Sweep)...');
+    
+    try {
+        await initializeAudioContext();
+        
+        if (!audioContext) {
+            console.error('❌ AudioContext not available');
+            return false;
+        }
+        
+        const frequencies = [250, 500, 1000, 2000, 4000];
+        
+        for (const freq of frequencies) {
+            console.log(`\n🔊 Testing ${freq}Hz - LEFT ear only`);
+            await playWebAudioTone(freq, 35, 'left', 1.0);
+            await new Promise(resolve => setTimeout(resolve, 300));
+            
+            console.log(`🔊 Testing ${freq}Hz - RIGHT ear only`);
+            await playWebAudioTone(freq, 35, 'right', 1.0);
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+        
+        console.log('\n✅ Advanced channel isolation test completed');
+        console.log('📋 Verify NO cross-ear leakage at any frequency');
+        
+        return true;
+        
+    } catch (error) {
+        console.error('❌ Advanced channel isolation test failed:', error);
         return false;
     }
 }
@@ -1547,8 +1641,9 @@ window.testAutoplayPolicyCompliance = testAutoplayPolicyCompliance;
 window.testLoudnessBehavior = testLoudnessBehavior;
 window.runAudioDiagnostics = runAudioDiagnostics;
 
-// TASK: Fix Ear-Specific Audio Routing - Expose channel isolation test
+// TASK: Fix Ear-Specific Audio Routing - Expose channel isolation tests
 window.testChannelIsolation = testChannelIsolation;
+window.testChannelIsolationAdvanced = testChannelIsolationAdvanced;
 
 /* -----------------------
    Event listeners (wiring)
