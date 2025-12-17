@@ -129,13 +129,26 @@ docker run -p 10000:10000 --env-file .env aurohear
 ### Project Structure
 ```
 audiometry-test/
-├── app.py                 # Main Flask application
-├── static/               # CSS, JavaScript, assets
-├── templates/            # HTML templates
-├── tests/               # Test suite
-├── requirements.txt     # Python dependencies
-├── package.json        # Node.js dependencies
-└── Dockerfile          # Container configuration
+├── app.py                          # Main Flask application
+├── migrate_db.py                   # Database migration utilities
+├── static/
+│   ├── styles.css                  # Main application styles
+│   ├── auth_styles.css            # Authentication-specific styles
+│   └── script.js                  # Frontend JavaScript application
+├── templates/
+│   └── index.html                 # Single-page application template
+├── instance/
+│   └── users.db                   # SQLite database (development)
+├── .github/workflows/
+│   └── keep-supabase-warm.yml     # CI/CD and maintenance
+├── test_*.py                      # Test files
+├── requirements.txt               # Python dependencies
+├── package.json                   # Node.js dependencies
+├── Dockerfile                     # Container configuration
+├── procfile                       # Heroku/Render deployment
+├── .env.example                   # Environment template
+├── DEPLOYMENT.md                  # Detailed deployment guide
+└── LICENSE                        # MIT License
 ```
 
 ### Development Commands
