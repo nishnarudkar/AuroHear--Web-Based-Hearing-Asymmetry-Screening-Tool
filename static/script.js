@@ -329,7 +329,7 @@ function initializeAudioContext() {
     return Promise.resolve(); // Continue without audio context
 }
 
-// Generate tone using Web Audio API (fallback method)
+// Generate tone using Web Audio API (fallback method - legacy)
 function generateWebAudioTone(freq, duration, volume, channel) {
     return new Promise((resolve) => {
         if (!audioContext) {
@@ -382,6 +382,103 @@ function generateWebAudioTone(freq, duration, volume, channel) {
     });
 }
 
+// Primary Web Audio API tone generator for audiometric testing
+async function playWebAudioTone(freq, levelDb, ear, duration = 0.35) {
+    return new Promise((resolve, reject) => {
+        if (!audioContext) {
+            reject(new Error('AudioContext not available'));
+            return;
+        }
+
+        try {
+            // Enhanced Hughson-Westlake audiometric amplitude mapping
+            const REFERENCE_DB = 50; // 50 dB HL reference level
+            
+            let finalGain = 0;
+            
+            // Enforce silence at 0 dB and below
+            if (levelDb <= 0) {
+                finalGain = 0.0;
+                logDebug(`Web Audio: ${levelDb}dB -> SILENT (≤ 0 dB HL)`);
+            } else {
+                // Calculate dB relative to 50 dB reference for steeper curve
+                const effectiveDb = levelDb - REFERENCE_DB;
+                
+                // Enhanced logarithmic dB-to-gain conversion with additional attenuation
+                const rawGain = Math.pow(10, effectiveDb / 20);
+                
+                // Apply additional attenuation factor for more gradual volume changes
+                const attenuationFactor = 0.4; // Reduce overall amplitude significantly
+                const adjustedGain = rawGain * attenuationFactor;
+                
+                // Clamp gain to much lower audiometric range [0.0001, 0.15]
+                const clampedGain = Math.max(0.0001, Math.min(0.15, adjustedGain));
+                
+                // Apply calibration volume with additional safety reduction
+                const safetyFactor = 0.7; // Additional safety reduction
+                finalGain = calibrationVolume * clampedGain * safetyFactor;
+                
+                logDebug(`Web Audio: ${levelDb}dB -> effective=${effectiveDb}dB, rawGain=${rawGain.toFixed(4)}, final=${finalGain.toFixed(4)}`);
+            }
+
+            // Create audio nodes
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            const merger = audioContext.createChannelMerger(2);
+            
+            // Configure oscillator
+            oscillator.frequency.setValueAtTime(freq, audioContext.currentTime);
+            oscillator.type = 'sine';
+            
+            // Configure gain with fade envelope
+            const now = audioContext.currentTime;
+            const fadeTime = 0.01; // 10ms fade
+            
+            gainNode.gain.setValueAtTime(0, now);
+            gainNode.gain.linearRampToValueAtTime(finalGain, now + fadeTime); // Fade in
+            gainNode.gain.setValueAtTime(finalGain, now + duration - fadeTime);
+            gainNode.gain.linearRampToValueAtTime(0, now + duration); // Fade out
+            
+            // Connect audio graph based on ear
+            oscillator.connect(gainNode);
+            
+            if (ear === 'left') {
+                // Left ear → channel 0
+                gainNode.connect(merger, 0, 0);
+            } else if (ear === 'right') {
+                // Right ear → channel 1
+                gainNode.connect(merger, 0, 1);
+            } else {
+                // Both ears
+                gainNode.connect(merger, 0, 0);
+                gainNode.connect(merger, 0, 1);
+            }
+            
+            merger.connect(audioContext.destination);
+            
+            // Schedule playback
+            oscillator.start(now);
+            oscillator.stop(now + duration);
+            
+            // Handle completion
+            oscillator.onended = () => {
+                logDebug(`Web Audio tone completed: ${freq}Hz, ${levelDb}dB HL, ${ear} ear`);
+                resolve();
+            };
+            
+            // Fallback timeout
+            setTimeout(() => {
+                logDebug('Web Audio tone timeout fallback');
+                resolve();
+            }, (duration * 1000) + 100);
+            
+        } catch (error) {
+            console.error('Web Audio tone generation failed:', error);
+            reject(error);
+        }
+    });
+}
+
 async function playServerTone(params) {
     // Generate unique tone ID
     const toneId = AudioStateManager.generateToneId();
@@ -404,13 +501,44 @@ async function playServerTone(params) {
         logDebug(`Tone ${toneId} blocked after gap wait - another tone started`);
         return Promise.resolve();
     }
-    
-    // Initialize audio context on first use
-    initializeAudioContext();
-    
+
+    // Use Web Audio API instead of <audio> element for better reliability
+    try {
+        await initializeAudioContext();
+        
+        if (!audioContext) {
+            throw new Error('AudioContext not available');
+        }
+
+        const freq = params.freq || 1000;
+        const duration = params.duration || 0.35;
+        const levelDb = params.level_db || 40;
+        const channel = params.channel || 'both';
+        
+        logDebug(`Playing Web Audio tone ${toneId}: ${freq}Hz, ${levelDb}dB HL, ${channel} ear`);
+        
+        await playWebAudioTone(freq, levelDb, channel, duration);
+        
+        logDebug(`Web Audio tone ${toneId} completed successfully`);
+        
+    } catch (error) {
+        console.error(`Web Audio tone ${toneId} failed:`, error);
+        
+        // Fallback to legacy server-generated audio if Web Audio fails
+        logDebug(`Falling back to server audio for tone ${toneId}`);
+        await playServerToneLegacy(params, toneId);
+        
+    } finally {
+        // Always release the audio state
+        AudioStateManager.stopTone(toneId);
+    }
+}
+
+// Legacy server-based audio (fallback only)
+async function playServerToneLegacy(params, toneId) {
     const url = new URL('/tone', window.location);
     Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v.toString()));
-    logDebug(`Playing tone ${toneId}: ${JSON.stringify(params)}`);
+    logDebug(`Legacy audio fallback for tone ${toneId}: ${JSON.stringify(params)}`);
     
     return new Promise((resolve) => {
         const audio = new Audio();
@@ -419,8 +547,7 @@ async function playServerTone(params) {
         const resolveOnce = () => {
             if (!resolved) {
                 resolved = true;
-                AudioStateManager.stopTone(toneId); // Release audio state
-                resolve();
+                resolve(); // Don't release audio state here - handled in main function
             }
         };
         
@@ -431,7 +558,7 @@ async function playServerTone(params) {
         // Enforce silence at 0 dB and below
         if (levelDb <= 0) {
             audio.volume = 0.0;
-            logDebug(`Volume calculation: ${levelDb}dB -> SILENT (≤ 0 dB HL)`);
+            logDebug(`Legacy audio: ${levelDb}dB -> SILENT (≤ 0 dB HL)`);
         } else {
             // Calculate dB relative to 50 dB reference for steeper curve
             const effectiveDb = levelDb - REFERENCE_DB;
@@ -450,134 +577,49 @@ async function playServerTone(params) {
             const safetyFactor = 0.7; // Additional safety reduction
             audio.volume = calibrationVolume * clampedGain * safetyFactor * (params.volume || 1);
             
-            logDebug(`Volume calculation: ${levelDb}dB -> effective=${effectiveDb}dB, rawGain=${rawGain.toFixed(4)}, attenuated=${adjustedGain.toFixed(4)}, clampedGain=${clampedGain.toFixed(4)}, final=${audio.volume.toFixed(4)}`);
+            logDebug(`Legacy audio: ${levelDb}dB -> final=${audio.volume.toFixed(4)}`);
         }
         
         // Enhanced audio properties for better compatibility
         audio.preload = 'auto';
         audio.crossOrigin = 'anonymous';
         
-        // Production-specific audio settings
-        if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-            audio.autoplay = false; // Disable autoplay in production
-            audio.muted = false; // Ensure not muted
-        }
-        
         // Force audio format and add cache busting
-        const urlWithCache = `${url.toString()}&t=${Date.now()}&prod=1`;
-        
-        logDebug(`Audio volume set to: ${audio.volume} (calibration: ${calibrationVolume})`);
-        logDebug(`Audio URL: ${urlWithCache}`);
+        const urlWithCache = `${url.toString()}&t=${Date.now()}&legacy=1`;
         
         // Set up event handlers
         audio.onended = () => {
-            logDebug('Audio playback ended normally');
+            logDebug('Legacy audio playback ended normally');
             resolveOnce();
         };
         
         audio.onerror = (e) => {
-            console.error('Audio error:', e, audio.error);
-            logDebug('Audio failed, trying Web Audio API fallback');
-            
-            // Show visual indicator for audio issues
-            showAudioError('Audio playback failed. Trying alternative method...');
-            
-            // Log detailed error information for production debugging
-            console.error('Audio Error Details:', {
-                error: audio.error,
-                networkState: audio.networkState,
-                readyState: audio.readyState,
-                src: audio.src,
-                volume: audio.volume,
-                muted: audio.muted,
-                paused: audio.paused
-            });
-            
-            // Try Web Audio API fallback
-            if (audioContext && params.freq) {
-                logDebug('Attempting Web Audio API fallback');
-                generateWebAudioTone(
-                    params.freq, 
-                    params.duration || 0.35, 
-                    audio.volume, 
-                    params.channel || 'both'
-                ).then(resolveOnce);
-            } else {
-                logDebug('No Web Audio API available, resolving without audio');
-                showAudioError('Audio system unavailable. Please check your browser settings.');
-                resolveOnce();
-            }
-        };
-        
-        audio.onloadstart = () => {
-            logDebug('Audio loading started');
-        };
-        
-        audio.oncanplay = () => {
-            logDebug('Audio can play');
+            console.error('Legacy audio error:', e);
+            logDebug('Legacy audio failed completely');
+            resolveOnce(); // Give up gracefully
         };
         
         // Set up fallback timer
         const baseDuration = parseFloat(params.duration || 0.35) * 1000;
-        const fallbackMs = baseDuration + (params.freq <= 500 ? 500 : 300);
+        const fallbackMs = baseDuration + 1000; // Longer timeout for legacy
         
         const fallback = setTimeout(() => {
             if (!resolved) {
-                logDebug('Audio playback fallback triggered - trying Web Audio API');
+                logDebug('Legacy audio timeout - resolving');
                 try { audio.pause(); } catch (e) { }
-                
-                // Try Web Audio API as final fallback
-                if (audioContext && params.freq) {
-                    generateWebAudioTone(
-                        params.freq, 
-                        params.duration || 0.35, 
-                        audio.volume, 
-                        params.channel || 'both'
-                    ).then(resolveOnce);
-                } else {
-                    resolveOnce();
-                }
+                resolveOnce();
             }
-        }, fallbackMs + 500);
+        }, fallbackMs);
 
         // Set source and attempt to play
         audio.src = urlWithCache;
         
         audio.play().then(() => {
-            logDebug('Audio playback started successfully');
+            logDebug('Legacy audio playback started');
         }).catch(err => {
-            console.error('Audio playback error:', err);
+            console.error('Legacy audio play failed:', err);
             clearTimeout(fallback);
-            
-            // Log detailed playback error for production debugging
-            console.error('Audio Play Error Details:', {
-                name: err.name,
-                message: err.message,
-                code: err.code,
-                audioSrc: audio.src,
-                audioVolume: audio.volume,
-                audioMuted: audio.muted,
-                userAgent: navigator.userAgent,
-                isSecureContext: window.isSecureContext,
-                protocol: window.location.protocol
-            });
-            
-            // Show user-friendly error message
-            showAudioError('Audio playback blocked. Please ensure audio is enabled in your browser.');
-            
-            // Immediate Web Audio API fallback
-            if (audioContext && params.freq) {
-                logDebug('Trying immediate Web Audio API fallback due to play() failure');
-                generateWebAudioTone(
-                    params.freq, 
-                    params.duration || 0.35, 
-                    audio.volume, 
-                    params.channel || 'both'
-                ).then(resolveOnce);
-            } else {
-                logDebug('No Web Audio API available for fallback');
-                setTimeout(resolveOnce, fallbackMs);
-            }
+            resolveOnce(); // Give up gracefully
         });
     });
 }
@@ -3421,12 +3463,12 @@ async function testAudio() {
     // Initialize audio context
     await initializeAudioContext();
     
-    console.log('Testing server-generated tone...');
+    console.log('Testing Web Audio API tone generation...');
     try {
-        await playServerTone({ freq: 1000, duration: 0.5, volume: 0.8, channel: 'both' });
-        console.log('✅ Server tone test passed');
+        await playServerTone({ freq: 1000, duration: 0.5, volume: 0.8, channel: 'both', level_db: 40 });
+        console.log('✅ Web Audio tone test passed');
     } catch (e) {
-        console.error('❌ Server tone test failed:', e);
+        console.error('❌ Web Audio tone test failed:', e);
     }
     
     console.log('Testing inter-tone gap enforcement...');
