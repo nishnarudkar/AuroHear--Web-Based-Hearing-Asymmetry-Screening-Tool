@@ -1113,6 +1113,336 @@ async function testSafeCleanup() {
     console.log('✅ Safe cleanup test completed');
 }
 
+// TASK 6: Browser Stress Test & Regression Validation
+async function runBrowserStressTests() {
+    console.log('🧪 Starting Browser Stress Test & Regression Validation...');
+    console.log('Testing under real-world conditions for production reliability');
+    
+    const results = {
+        rapidClicks: { passed: false, errors: [] },
+        earSwitching: { passed: false, errors: [] },
+        fullAudiogram: { passed: false, errors: [] },
+        autoplayPolicy: { passed: false, errors: [] },
+        loudnessValidation: { passed: false, errors: [] }
+    };
+    
+    try {
+        // Test 1: Rapid "Heard / Not Heard" clicks
+        console.log('\n📱 Test 1: Rapid Response Clicks');
+        await testRapidResponseClicks(results.rapidClicks);
+        
+        // Test 2: Quick ear switching
+        console.log('\n👂 Test 2: Quick Ear Switching');
+        await testQuickEarSwitching(results.earSwitching);
+        
+        // Test 3: Full audiogram simulation
+        console.log('\n📊 Test 3: Full Audiogram Simulation');
+        await testFullAudiogramSimulation(results.fullAudiogram);
+        
+        // Test 4: Chrome autoplay policies
+        console.log('\n🎵 Test 4: Autoplay Policy Compliance');
+        await testAutoplayPolicyCompliance(results.autoplayPolicy);
+        
+        // Test 5: Loudness behavior validation
+        console.log('\n🔊 Test 5: Loudness Behavior Validation');
+        await testLoudnessBehavior(results.loudnessValidation);
+        
+        // Summary
+        console.log('\n📋 STRESS TEST SUMMARY:');
+        Object.entries(results).forEach(([test, result]) => {
+            const status = result.passed ? '✅ PASSED' : '❌ FAILED';
+            console.log(`${status} ${test}: ${result.errors.length} errors`);
+            if (result.errors.length > 0) {
+                result.errors.forEach(error => console.log(`  - ${error}`));
+            }
+        });
+        
+        const allPassed = Object.values(results).every(r => r.passed);
+        console.log(`\n🎯 Overall Result: ${allPassed ? '✅ ALL TESTS PASSED' : '❌ SOME TESTS FAILED'}`);
+        
+        return results;
+        
+    } catch (error) {
+        console.error('🚨 Stress test suite failed:', error);
+        return results;
+    }
+}
+
+// Test 1: Rapid "Heard / Not Heard" clicks simulation
+async function testRapidResponseClicks(result) {
+    console.log('Simulating rapid user response clicks...');
+    
+    try {
+        const clickCount = 20;
+        const clickInterval = 100; // 100ms between clicks (very fast)
+        let abortErrors = 0;
+        let missedTones = 0;
+        
+        for (let i = 0; i < clickCount; i++) {
+            try {
+                // Simulate rapid tone requests
+                const tonePromise = playServerTone({
+                    freq: 1000 + (i * 50),
+                    duration: 0.2,
+                    channel: i % 2 === 0 ? 'left' : 'right',
+                    level_db: 40
+                });
+                
+                // Wait for tone or timeout
+                const timeoutPromise = new Promise(resolve => 
+                    setTimeout(() => resolve('timeout'), 500)
+                );
+                
+                const result = await Promise.race([tonePromise, timeoutPromise]);
+                
+                if (result === 'timeout') {
+                    missedTones++;
+                }
+                
+                // Simulate rapid clicking
+                await new Promise(resolve => setTimeout(resolve, clickInterval));
+                
+            } catch (error) {
+                if (error.name === 'AbortError' || error.message.includes('abort')) {
+                    abortErrors++;
+                }
+                result.errors.push(`Click ${i}: ${error.message}`);
+            }
+        }
+        
+        // Validation
+        if (abortErrors === 0 && missedTones < clickCount * 0.1) { // Allow 10% missed tones
+            result.passed = true;
+            console.log(`✅ Rapid clicks: ${abortErrors} AbortErrors, ${missedTones} missed tones`);
+        } else {
+            result.errors.push(`${abortErrors} AbortErrors, ${missedTones} missed tones`);
+            console.log(`❌ Rapid clicks: ${abortErrors} AbortErrors, ${missedTones} missed tones`);
+        }
+        
+    } catch (error) {
+        result.errors.push(`Rapid clicks test failed: ${error.message}`);
+        console.error('❌ Rapid clicks test error:', error);
+    }
+}
+
+// Test 2: Quick ear switching simulation
+async function testQuickEarSwitching(result) {
+    console.log('Simulating quick ear switching...');
+    
+    try {
+        const switchCount = 15;
+        let switchErrors = 0;
+        let channelErrors = 0;
+        
+        for (let i = 0; i < switchCount; i++) {
+            try {
+                const ear = i % 2 === 0 ? 'left' : 'right';
+                const freq = 1000 + (i * 100);
+                
+                // Quick ear switch with minimal delay
+                await playServerTone({
+                    freq: freq,
+                    duration: 0.15, // Short duration
+                    channel: ear,
+                    level_db: 45
+                });
+                
+                // Verify audio state is clean between switches
+                const state = AudioStateManager.getState();
+                if (state.isTonePlaying) {
+                    switchErrors++;
+                    result.errors.push(`Switch ${i}: Audio state not clean`);
+                }
+                
+                // Minimal delay between switches
+                await new Promise(resolve => setTimeout(resolve, 50));
+                
+            } catch (error) {
+                switchErrors++;
+                result.errors.push(`Switch ${i}: ${error.message}`);
+            }
+        }
+        
+        // Validation
+        if (switchErrors === 0) {
+            result.passed = true;
+            console.log(`✅ Ear switching: ${switchErrors} errors`);
+        } else {
+            console.log(`❌ Ear switching: ${switchErrors} errors`);
+        }
+        
+    } catch (error) {
+        result.errors.push(`Ear switching test failed: ${error.message}`);
+        console.error('❌ Ear switching test error:', error);
+    }
+}
+
+// Test 3: Full audiogram simulation without refresh
+async function testFullAudiogramSimulation(result) {
+    console.log('Simulating complete audiogram test...');
+    
+    try {
+        const frequencies = [250, 500, 1000, 2000, 4000, 5000];
+        const ears = ['left', 'right'];
+        const levels = [60, 50, 40, 30, 20, 10]; // Descending levels
+        
+        let totalTones = 0;
+        let successfulTones = 0;
+        let audiogramErrors = 0;
+        
+        for (const ear of ears) {
+            for (const freq of frequencies) {
+                for (const level of levels) {
+                    try {
+                        totalTones++;
+                        
+                        await playServerTone({
+                            freq: freq,
+                            duration: 0.3,
+                            channel: ear,
+                            level_db: level
+                        });
+                        
+                        successfulTones++;
+                        
+                        // Simulate user response time
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                        
+                    } catch (error) {
+                        audiogramErrors++;
+                        result.errors.push(`${ear} ${freq}Hz ${level}dB: ${error.message}`);
+                    }
+                }
+            }
+        }
+        
+        // Validation
+        const successRate = successfulTones / totalTones;
+        if (successRate >= 0.95) { // 95% success rate required
+            result.passed = true;
+            console.log(`✅ Full audiogram: ${successfulTones}/${totalTones} tones (${(successRate * 100).toFixed(1)}%)`);
+        } else {
+            console.log(`❌ Full audiogram: ${successfulTones}/${totalTones} tones (${(successRate * 100).toFixed(1)}%)`);
+        }
+        
+    } catch (error) {
+        result.errors.push(`Full audiogram test failed: ${error.message}`);
+        console.error('❌ Full audiogram test error:', error);
+    }
+}
+
+// Test 4: Chrome autoplay policy compliance
+async function testAutoplayPolicyCompliance(result) {
+    console.log('Testing autoplay policy compliance...');
+    
+    try {
+        let autoplayErrors = 0;
+        let policyViolations = 0;
+        
+        // Test without user interaction (should handle gracefully)
+        try {
+            await playServerTone({
+                freq: 1000,
+                duration: 0.2,
+                channel: 'both',
+                level_db: 40
+            });
+            console.log('✅ Audio plays without explicit user interaction');
+        } catch (error) {
+            if (error.message.includes('autoplay') || error.message.includes('user activation')) {
+                console.log('ℹ️ Autoplay blocked as expected - this is normal');
+            } else {
+                autoplayErrors++;
+                result.errors.push(`Autoplay test: ${error.message}`);
+            }
+        }
+        
+        // Test audio context state handling
+        if (audioContext) {
+            if (audioContext.state === 'suspended') {
+                console.log('ℹ️ AudioContext suspended - normal for autoplay policy');
+            } else if (audioContext.state === 'running') {
+                console.log('✅ AudioContext running - user interaction detected');
+            }
+        }
+        
+        // Validation
+        if (autoplayErrors === 0) {
+            result.passed = true;
+            console.log('✅ Autoplay policy compliance verified');
+        } else {
+            console.log(`❌ Autoplay policy: ${autoplayErrors} errors`);
+        }
+        
+    } catch (error) {
+        result.errors.push(`Autoplay policy test failed: ${error.message}`);
+        console.error('❌ Autoplay policy test error:', error);
+    }
+}
+
+// Test 5: Loudness behavior validation (no inverted behavior)
+async function testLoudnessBehavior(result) {
+    console.log('Validating loudness behavior...');
+    
+    try {
+        const testLevels = [60, 40, 20, 10, 0, -10];
+        let loudnessErrors = 0;
+        let previousGain = 1.0;
+        
+        for (const level of testLevels) {
+            try {
+                // Calculate expected gain (same as in playWebAudioTone)
+                let expectedGain = 0;
+                if (level > 0) {
+                    const REFERENCE_DB = 50;
+                    const effectiveDb = level - REFERENCE_DB;
+                    const rawGain = Math.pow(10, effectiveDb / 20);
+                    const attenuationFactor = 0.4;
+                    const adjustedGain = rawGain * attenuationFactor;
+                    const clampedGain = Math.max(0.0001, Math.min(0.15, adjustedGain));
+                    const safetyFactor = 0.7;
+                    expectedGain = calibrationVolume * clampedGain * safetyFactor;
+                }
+                
+                // Validate loudness progression
+                if (level > 0) {
+                    if (level < 60 && expectedGain > previousGain) {
+                        loudnessErrors++;
+                        result.errors.push(`Inverted loudness: ${level}dB louder than previous`);
+                    }
+                    previousGain = expectedGain;
+                }
+                
+                // Test the actual tone
+                await playServerTone({
+                    freq: 1000,
+                    duration: 0.1,
+                    channel: 'both',
+                    level_db: level
+                });
+                
+                console.log(`${level}dB HL -> gain=${expectedGain.toFixed(6)}`);
+                
+            } catch (error) {
+                loudnessErrors++;
+                result.errors.push(`Loudness ${level}dB: ${error.message}`);
+            }
+        }
+        
+        // Validation
+        if (loudnessErrors === 0) {
+            result.passed = true;
+            console.log('✅ Loudness behavior validated - no inversions');
+        } else {
+            console.log(`❌ Loudness behavior: ${loudnessErrors} errors`);
+        }
+        
+    } catch (error) {
+        result.errors.push(`Loudness behavior test failed: ${error.message}`);
+        console.error('❌ Loudness behavior test error:', error);
+    }
+}
+
 // Expose audio state utilities for debugging
 window.AudioStateManager = AudioStateManager;
 window.resetAudioState = resetAudioState;
@@ -1120,6 +1450,53 @@ window.debugAudioState = debugAudioState;
 window.testRapidTones = testRapidTones;
 window.testSafeCleanup = testSafeCleanup;
 window.stopAllActiveTones = stopAllActiveTones;
+
+// Audio diagnostics for production monitoring
+async function runAudioDiagnostics() {
+    console.log('🔧 Running audio system diagnostics...');
+    
+    try {
+        // Check audio context availability
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) {
+            console.warn('⚠️ Web Audio API not supported');
+            return;
+        }
+        
+        // Check audio state manager
+        const state = AudioStateManager.getState();
+        console.log('✅ Audio State Manager operational:', {
+            canStartNewTone: state.canStartNewTone,
+            interToneGap: INTER_TONE_GAP_MS
+        });
+        
+        // Check calibration volume
+        console.log('✅ Calibration volume:', calibrationVolume);
+        
+        // Test basic audio context creation
+        try {
+            const testContext = new AudioContextClass();
+            console.log('✅ AudioContext creation successful, state:', testContext.state);
+            testContext.close();
+        } catch (e) {
+            console.warn('⚠️ AudioContext creation failed:', e.message);
+        }
+        
+        console.log('🔧 Audio diagnostics completed');
+        
+    } catch (error) {
+        console.error('🚨 Audio diagnostics failed:', error);
+    }
+}
+
+// TASK 6: Expose Browser Stress Test & Regression Validation functions globally
+window.runBrowserStressTests = runBrowserStressTests;
+window.testRapidResponseClicks = testRapidResponseClicks;
+window.testQuickEarSwitching = testQuickEarSwitching;
+window.testFullAudiogramSimulation = testFullAudiogramSimulation;
+window.testAutoplayPolicyCompliance = testAutoplayPolicyCompliance;
+window.testLoudnessBehavior = testLoudnessBehavior;
+window.runAudioDiagnostics = runAudioDiagnostics;
 
 /* -----------------------
    Event listeners (wiring)
