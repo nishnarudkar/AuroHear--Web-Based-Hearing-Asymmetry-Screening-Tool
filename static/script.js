@@ -329,7 +329,7 @@ function initializeAudioContext() {
     return Promise.resolve(); // Continue without audio context
 }
 
-// Generate tone using Web Audio API (fallback method - legacy)
+// Generate tone using Web Audio API (legacy fallback with safe cleanup)
 function generateWebAudioTone(freq, duration, volume, channel) {
     return new Promise((resolve) => {
         if (!audioContext) {
@@ -338,15 +338,64 @@ function generateWebAudioTone(freq, duration, volume, channel) {
             return;
         }
 
+        let oscillator = null;
+        let gainNode = null;
+        let merger = null;
+        let isCleanedUp = false;
+        let timeoutId = null;
+
+        // Safe cleanup for legacy function
+        const safeCleanup = () => {
+            if (isCleanedUp) return;
+            isCleanedUp = true;
+
+            try {
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = null;
+                }
+
+                if (oscillator) {
+                    try {
+                        oscillator.onended = null;
+                        oscillator.disconnect();
+                    } catch (e) {
+                        // Already disconnected
+                    }
+                    oscillator = null;
+                }
+
+                if (gainNode) {
+                    try {
+                        gainNode.disconnect();
+                    } catch (e) {
+                        // Already disconnected
+                    }
+                    gainNode = null;
+                }
+
+                if (merger) {
+                    try {
+                        merger.disconnect();
+                    } catch (e) {
+                        // Already disconnected
+                    }
+                    merger = null;
+                }
+            } catch (error) {
+                console.warn('Legacy cleanup error (non-fatal):', error);
+            }
+        };
+
         try {
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            const merger = audioContext.createChannelMerger(2);
+            oscillator = audioContext.createOscillator();
+            gainNode = audioContext.createGain();
+            merger = audioContext.createChannelMerger(2);
             
             oscillator.frequency.setValueAtTime(freq, audioContext.currentTime);
             oscillator.type = 'sine';
             
-            // Set volume with fade in/out
+            // Set volume with fade in/out for smooth playback
             const now = audioContext.currentTime;
             gainNode.gain.setValueAtTime(0, now);
             gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.01); // Fade in
@@ -365,30 +414,114 @@ function generateWebAudioTone(freq, duration, volume, channel) {
             }
             merger.connect(audioContext.destination);
             
-            oscillator.start(now);
-            oscillator.stop(now + duration);
-            
+            // Handle completion with cleanup
             oscillator.onended = () => {
-                logDebug('Web Audio API tone ended');
+                logDebug('Legacy Web Audio tone ended cleanly');
+                safeCleanup();
                 resolve();
             };
             
-            setTimeout(() => resolve(), duration * 1000 + 100);
+            oscillator.start(now);
+            oscillator.stop(now + duration); // Scheduled stop
+            
+            // Fallback timeout with cleanup
+            timeoutId = setTimeout(() => {
+                logDebug('Legacy Web Audio timeout cleanup');
+                safeCleanup();
+                resolve();
+            }, duration * 1000 + 200);
             
         } catch (e) {
-            console.error('Web Audio API tone generation failed:', e);
+            console.error('Legacy Web Audio tone generation failed:', e);
+            safeCleanup();
             resolve();
         }
     });
 }
 
-// Primary Web Audio API tone generator for audiometric testing
+// Primary Web Audio API tone generator with safe cleanup
 async function playWebAudioTone(freq, levelDb, ear, duration = 0.35) {
     return new Promise((resolve, reject) => {
         if (!audioContext) {
             reject(new Error('AudioContext not available'));
             return;
         }
+
+        let oscillator = null;
+        let gainNode = null;
+        let merger = null;
+        let isCleanedUp = false;
+        let timeoutId = null;
+
+        // Safe cleanup function
+        const safeCleanup = () => {
+            if (isCleanedUp) return;
+            isCleanedUp = true;
+
+            try {
+                // Clear timeout
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = null;
+                }
+
+                // Safe oscillator cleanup
+                if (oscillator) {
+                    try {
+                        // Remove event listeners to prevent multiple calls
+                        oscillator.onended = null;
+                        
+                        // Use scheduled stop() instead of abrupt disconnect
+                        if (oscillator.context.state !== 'closed') {
+                            try {
+                                oscillator.stop(); // Graceful scheduled stop
+                            } catch (e) {
+                                // Already stopped
+                            }
+                        }
+                        
+                        // Disconnect oscillator from audio graph
+                        oscillator.disconnect();
+                        logDebug('Oscillator stopped and disconnected safely');
+                    } catch (e) {
+                        // Oscillator may already be stopped/disconnected
+                        logDebug('Oscillator already stopped/disconnected');
+                    }
+                }
+
+                // Safe gain node cleanup
+                if (gainNode) {
+                    try {
+                        gainNode.disconnect();
+                        logDebug('Gain node disconnected safely');
+                    } catch (e) {
+                        logDebug('Gain node already disconnected');
+                    }
+                }
+
+                // Safe merger cleanup
+                if (merger) {
+                    try {
+                        merger.disconnect();
+                        logDebug('Merger disconnected safely');
+                    } catch (e) {
+                        logDebug('Merger already disconnected');
+                    }
+                }
+                
+                // Unregister nodes from tracking
+                unregisterAudioNodes(oscillator, gainNode, merger);
+                
+                // Clear local references
+                oscillator = null;
+                gainNode = null;
+                merger = null;
+
+                logDebug('Web Audio cleanup completed');
+            } catch (error) {
+                console.warn('Cleanup error (non-fatal):', error);
+            }
+        };
 
         try {
             // Enhanced Hughson-Westlake audiometric amplitude mapping
@@ -422,17 +555,20 @@ async function playWebAudioTone(freq, levelDb, ear, duration = 0.35) {
             }
 
             // Create audio nodes
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            const merger = audioContext.createChannelMerger(2);
+            oscillator = audioContext.createOscillator();
+            gainNode = audioContext.createGain();
+            merger = audioContext.createChannelMerger(2);
+            
+            // Register nodes for tracking and emergency cleanup
+            registerAudioNodes(oscillator, gainNode, merger);
             
             // Configure oscillator
             oscillator.frequency.setValueAtTime(freq, audioContext.currentTime);
             oscillator.type = 'sine';
             
-            // Configure gain with fade envelope
+            // Configure gain with fade envelope for smooth start/stop
             const now = audioContext.currentTime;
-            const fadeTime = 0.01; // 10ms fade
+            const fadeTime = 0.01; // 10ms fade to prevent clicks
             
             gainNode.gain.setValueAtTime(0, now);
             gainNode.gain.linearRampToValueAtTime(finalGain, now + fadeTime); // Fade in
@@ -456,24 +592,27 @@ async function playWebAudioTone(freq, levelDb, ear, duration = 0.35) {
             
             merger.connect(audioContext.destination);
             
-            // Schedule playback
-            oscillator.start(now);
-            oscillator.stop(now + duration);
-            
-            // Handle completion
+            // Handle completion with safe cleanup
             oscillator.onended = () => {
-                logDebug(`Web Audio tone completed: ${freq}Hz, ${levelDb}dB HL, ${ear} ear`);
+                logDebug(`Web Audio tone completed naturally: ${freq}Hz, ${levelDb}dB HL, ${ear} ear`);
+                safeCleanup();
                 resolve();
             };
             
-            // Fallback timeout
-            setTimeout(() => {
-                logDebug('Web Audio tone timeout fallback');
+            // Schedule playback with precise timing
+            oscillator.start(now);
+            oscillator.stop(now + duration); // Scheduled stop - no abrupt cutoff
+            
+            // Fallback timeout with cleanup
+            timeoutId = setTimeout(() => {
+                logDebug('Web Audio tone timeout - cleaning up');
+                safeCleanup();
                 resolve();
-            }, (duration * 1000) + 100);
+            }, (duration * 1000) + 200); // Extra buffer for cleanup
             
         } catch (error) {
             console.error('Web Audio tone generation failed:', error);
+            safeCleanup(); // Ensure cleanup on error
             reject(error);
         }
     });
@@ -605,8 +744,8 @@ async function playServerToneLegacy(params, toneId) {
         
         const fallback = setTimeout(() => {
             if (!resolved) {
-                logDebug('Legacy audio timeout - resolving');
-                try { audio.pause(); } catch (e) { }
+                logDebug('Legacy audio timeout - resolving without pause()');
+                // Do NOT call pause() - let audio end naturally or via stop()
                 resolveOnce();
             }
         }, fallbackMs);
@@ -691,6 +830,71 @@ function resetAudioState() {
     logDebug('Audio state manually reset');
 }
 
+// Global tone management for safe cleanup
+let activeOscillators = new Set();
+let activeGainNodes = new Set();
+let activeMergers = new Set();
+
+// Register active audio nodes for cleanup tracking
+function registerAudioNodes(oscillator, gainNode, merger) {
+    if (oscillator) activeOscillators.add(oscillator);
+    if (gainNode) activeGainNodes.add(gainNode);
+    if (merger) activeMergers.add(merger);
+}
+
+// Unregister audio nodes after cleanup
+function unregisterAudioNodes(oscillator, gainNode, merger) {
+    if (oscillator) activeOscillators.delete(oscillator);
+    if (gainNode) activeGainNodes.delete(gainNode);
+    if (merger) activeMergers.delete(merger);
+}
+
+// Safe emergency stop for all active tones
+function stopAllActiveTones() {
+    logDebug('Emergency stop: Cleaning up all active tones');
+    
+    // Stop all active oscillators safely
+    activeOscillators.forEach(oscillator => {
+        try {
+            if (oscillator.context.state !== 'closed') {
+                oscillator.onended = null; // Prevent callbacks
+                oscillator.stop(); // Scheduled stop, not abrupt
+                oscillator.disconnect();
+            }
+        } catch (e) {
+            logDebug('Oscillator already stopped/disconnected');
+        }
+    });
+    
+    // Disconnect all gain nodes
+    activeGainNodes.forEach(gainNode => {
+        try {
+            gainNode.disconnect();
+        } catch (e) {
+            logDebug('Gain node already disconnected');
+        }
+    });
+    
+    // Disconnect all mergers
+    activeMergers.forEach(merger => {
+        try {
+            merger.disconnect();
+        } catch (e) {
+            logDebug('Merger already disconnected');
+        }
+    });
+    
+    // Clear all tracking sets
+    activeOscillators.clear();
+    activeGainNodes.clear();
+    activeMergers.clear();
+    
+    // Force reset audio state
+    AudioStateManager.forceReset();
+    
+    logDebug('Emergency stop completed - all tones cleaned up');
+}
+
 // Audio state debugging utilities
 function debugAudioState() {
     const state = AudioStateManager.getState();
@@ -701,7 +905,12 @@ function debugAudioState() {
         timeSinceLastTone: Date.now() - state.lastToneEndTime,
         canStartNewTone: state.canStartNewTone,
         requiredWaitTime: state.requiredWaitTime,
-        interToneGapMs: INTER_TONE_GAP_MS
+        interToneGapMs: INTER_TONE_GAP_MS,
+        activeNodes: {
+            oscillators: activeOscillators.size,
+            gainNodes: activeGainNodes.size,
+            mergers: activeMergers.size
+        }
     });
 }
 
@@ -716,7 +925,8 @@ async function testRapidTones() {
                 freq: 1000 + (i * 200), 
                 duration: 0.2, 
                 volume: 0.3, 
-                channel: 'both' 
+                channel: 'both',
+                level_db: 40 
             })
         );
     }
@@ -725,11 +935,36 @@ async function testRapidTones() {
     console.log('✅ Rapid tone test completed');
 }
 
+// Test safe tone cleanup
+async function testSafeCleanup() {
+    console.log('🔊 Testing safe tone cleanup...');
+    
+    // Start a tone
+    const tonePromise = playServerTone({ 
+        freq: 1000, 
+        duration: 2.0, // Long duration
+        volume: 0.3, 
+        channel: 'both',
+        level_db: 40 
+    });
+    
+    // Wait a bit, then force cleanup
+    setTimeout(() => {
+        console.log('🛑 Testing emergency stop...');
+        stopAllActiveTones();
+    }, 500);
+    
+    await tonePromise;
+    console.log('✅ Safe cleanup test completed');
+}
+
 // Expose audio state utilities for debugging
 window.AudioStateManager = AudioStateManager;
 window.resetAudioState = resetAudioState;
 window.debugAudioState = debugAudioState;
 window.testRapidTones = testRapidTones;
+window.testSafeCleanup = testSafeCleanup;
+window.stopAllActiveTones = stopAllActiveTones;
 
 /* -----------------------
    Event listeners (wiring)
