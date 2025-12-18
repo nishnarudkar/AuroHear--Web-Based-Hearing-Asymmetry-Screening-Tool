@@ -469,6 +469,11 @@ function generateWebAudioTone(freq, duration, volume, channel) {
             gainNode = audioContext.createGain();
             merger = audioContext.createChannelMerger(2);
             
+            // CRITICAL FIX: Force mono signal before ChannelMergerNode (legacy function)
+            gainNode.channelCount = 1;
+            gainNode.channelCountMode = 'explicit';
+            gainNode.channelInterpretation = 'speakers';
+            
             oscillator.frequency.setValueAtTime(freq, audioContext.currentTime);
             oscillator.type = 'sine';
             
@@ -679,6 +684,17 @@ async function playWebAudioTone(freq, levelDb, ear, duration = 0.35) {
             silenceOscillator = audioContext.createOscillator();
             silenceGain = audioContext.createGain();
             
+            // CRITICAL FIX: Force mono signal before ChannelMergerNode
+            // Ensure gainNode outputs strictly mono signal for deterministic routing
+            gainNode.channelCount = 1;
+            gainNode.channelCountMode = 'explicit';
+            gainNode.channelInterpretation = 'speakers';
+            
+            // Force silence gain to mono as well
+            silenceGain.channelCount = 1;
+            silenceGain.channelCountMode = 'explicit';
+            silenceGain.channelInterpretation = 'speakers';
+            
             // Register nodes for tracking and emergency cleanup
             registerAudioNodes(oscillator, gainNode, merger);
             
@@ -712,17 +728,17 @@ async function playWebAudioTone(freq, levelDb, ear, duration = 0.35) {
                 // Left ear: tone → channel 0, explicit silence → channel 1
                 gainNode.connect(merger, 0, 0);
                 silenceGain.connect(merger, 0, 1);
-                logDebug('Channel routing: LEFT ear (channel 0) + explicit silence (channel 1)');
+                logDebug(`Channel routing: LEFT ear (channel 0) + explicit silence (channel 1) | Gain mono: ${gainNode.channelCount === 1}`);
             } else if (ear === 'right') {
                 // Right ear: explicit silence → channel 0, tone → channel 1
                 silenceGain.connect(merger, 0, 0);
                 gainNode.connect(merger, 0, 1);
-                logDebug('Channel routing: explicit silence (channel 0) + RIGHT ear (channel 1)');
+                logDebug(`Channel routing: explicit silence (channel 0) + RIGHT ear (channel 1) | Gain mono: ${gainNode.channelCount === 1}`);
             } else {
                 // Both ears - connect tone to both channels (no silence needed)
                 gainNode.connect(merger, 0, 0);
                 gainNode.connect(merger, 0, 1);
-                logDebug('Channel routing: BOTH ears (channels 0 and 1)');
+                logDebug(`Channel routing: BOTH ears (channels 0 and 1) | Gain mono: ${gainNode.channelCount === 1}`);
             }
             
             // Connect merger to destination (never connect oscillator directly)
@@ -1641,9 +1657,55 @@ window.testAutoplayPolicyCompliance = testAutoplayPolicyCompliance;
 window.testLoudnessBehavior = testLoudnessBehavior;
 window.runAudioDiagnostics = runAudioDiagnostics;
 
+// Mono signal verification test
+async function testMonoSignalRouting() {
+    console.log('🎛️ Testing Mono Signal Routing (Ear Inversion Fix)...');
+    console.log('🔧 Verifying gainNode outputs strictly mono signals to ChannelMergerNode');
+    
+    try {
+        await initializeAudioContext();
+        
+        if (!audioContext) {
+            console.error('❌ AudioContext not available');
+            return false;
+        }
+        
+        console.log('\n🔊 Test 1: LEFT ear with mono signal verification');
+        console.log('   Expected: Tone ONLY in left ear, complete silence in right ear');
+        await playWebAudioTone(1000, 45, 'left', 2.0);
+        
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        console.log('\n🔊 Test 2: RIGHT ear with mono signal verification');
+        console.log('   Expected: Tone ONLY in right ear, complete silence in left ear');
+        await playWebAudioTone(1000, 45, 'right', 2.0);
+        
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        console.log('\n🔊 Test 3: Alternating ears (rapid switching test)');
+        for (let i = 0; i < 4; i++) {
+            const ear = i % 2 === 0 ? 'left' : 'right';
+            console.log(`   ${ear.toUpperCase()} ear (${1200 + i * 100}Hz)`);
+            await playWebAudioTone(1200 + i * 100, 40, ear, 0.8);
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        
+        console.log('\n✅ Mono signal routing test completed');
+        console.log('📋 VERIFICATION: Check browser console for "Gain mono: true" messages');
+        console.log('🚨 If ear inversion persists, the issue may be in hardware/OS audio routing');
+        
+        return true;
+        
+    } catch (error) {
+        console.error('❌ Mono signal routing test failed:', error);
+        return false;
+    }
+}
+
 // TASK: Fix Ear-Specific Audio Routing - Expose channel isolation tests
 window.testChannelIsolation = testChannelIsolation;
 window.testChannelIsolationAdvanced = testChannelIsolationAdvanced;
+window.testMonoSignalRouting = testMonoSignalRouting;
 
 /* -----------------------
    Event listeners (wiring)
