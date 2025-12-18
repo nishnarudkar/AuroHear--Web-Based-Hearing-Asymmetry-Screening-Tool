@@ -442,6 +442,17 @@ function generateWebAudioTone(freq, duration, volume, channel) {
                     oscillator = null;
                 }
 
+                // Cleanup silence oscillator (legacy function)
+                if (silenceOscillator) {
+                    try {
+                        silenceOscillator.onended = null;
+                        silenceOscillator.disconnect();
+                    } catch (e) {
+                        // Already disconnected
+                    }
+                    silenceOscillator = null;
+                }
+
                 if (gainNode) {
                     try {
                         gainNode.disconnect();
@@ -449,6 +460,16 @@ function generateWebAudioTone(freq, duration, volume, channel) {
                         // Already disconnected
                     }
                     gainNode = null;
+                }
+
+                // Cleanup silence gain (legacy function)
+                if (silenceGain) {
+                    try {
+                        silenceGain.disconnect();
+                    } catch (e) {
+                        // Already disconnected
+                    }
+                    silenceGain = null;
                 }
 
                 if (merger) {
@@ -469,6 +490,10 @@ function generateWebAudioTone(freq, duration, volume, channel) {
             gainNode = audioContext.createGain();
             merger = audioContext.createChannelMerger(2);
             
+            // Create silence generator for legacy function consistency
+            let silenceOscillator = null;
+            let silenceGain = null;
+            
             // CRITICAL FIX: Force mono signal before ChannelMergerNode (legacy function)
             gainNode.channelCount = 1;
             gainNode.channelCountMode = 'explicit';
@@ -484,14 +509,37 @@ function generateWebAudioTone(freq, duration, volume, channel) {
             gainNode.gain.setValueAtTime(volume * 0.3, now + duration - 0.01);
             gainNode.gain.linearRampToValueAtTime(0, now + duration); // Fade out
             
-            // FIXED: Connect with proper channel isolation (no stereo leakage)
+            // FIXED: Connect with explicit silence injection (consistent with main function)
             oscillator.connect(gainNode);
-            if (channel === 'left') {
-                // Left ear ONLY → channel 0, channel 1 left unconnected for isolation
-                gainNode.connect(merger, 0, 0);
-            } else if (channel === 'right') {
-                // Right ear ONLY → channel 1, channel 0 left unconnected for isolation
-                gainNode.connect(merger, 0, 1);
+            
+            if (channel === 'left' || channel === 'right') {
+                // Create silence for single-ear routing
+                silenceOscillator = audioContext.createOscillator();
+                silenceGain = audioContext.createGain();
+                
+                // Configure silence
+                silenceOscillator.frequency.setValueAtTime(freq, audioContext.currentTime);
+                silenceOscillator.type = 'sine';
+                silenceGain.channelCount = 1;
+                silenceGain.channelCountMode = 'explicit';
+                silenceGain.channelInterpretation = 'speakers';
+                silenceGain.gain.setValueAtTime(0, now); // Complete silence
+                
+                silenceOscillator.connect(silenceGain);
+                
+                if (channel === 'left') {
+                    // Left ear: tone → channel 0, silence → channel 1
+                    gainNode.connect(merger, 0, 0);
+                    silenceGain.connect(merger, 0, 1);
+                } else {
+                    // Right ear: silence → channel 0, tone → channel 1
+                    silenceGain.connect(merger, 0, 0);
+                    gainNode.connect(merger, 0, 1);
+                }
+                
+                // Start silence oscillator
+                silenceOscillator.start(now);
+                silenceOscillator.stop(now + duration);
             } else {
                 // Both ears - connect to both channels
                 gainNode.connect(merger, 0, 0);
