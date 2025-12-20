@@ -112,7 +112,7 @@ docker run -p 10000:10000 --env-file .env aurohear
 ### Features
 - **Authenticated Users**: Test history, trend analysis, data export
 - **Guest Mode**: Complete privacy, no data storage
-- **Feedback System**: Optional post-test ratings and suggestions
+- **Feedback System**: Required post-test ratings and suggestions for NLP analysis
 
 ## Medical Disclaimers
 

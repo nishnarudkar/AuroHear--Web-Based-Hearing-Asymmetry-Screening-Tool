@@ -732,7 +732,7 @@
                     <div class="glass-card">
                         <div class="feedback-header">
                             <h3>Help Us Improve</h3>
-                            <p class="muted">Your feedback helps us enhance the testing experience (optional)</p>
+                            <p class="muted">Your feedback helps us enhance the testing experience (required)</p>
                         </div>
 
                         <form id="feedback-form" class="feedback-form">
@@ -772,14 +772,18 @@
                             </div>
 
                             <div class="feedback-text">
-                                <label for="suggestions-input">Any suggestions or issues you faced? (optional)</label>
+                                <label for="suggestions-input">Any suggestions or issues you faced? (required)</label>
                                 <textarea 
                                     id="suggestions-input" 
                                     placeholder="Share any technical issues, suggestions for improvement, or general comments about the testing experience..."
                                     maxlength="1000"
-                                    rows="3"></textarea>
+                                    rows="3"
+                                    required></textarea>
                                 <div class="char-count">
                                     <span id="char-counter">0</span>/1000 characters
+                                </div>
+                                <div id="feedback-error" class="feedback-error hidden">
+                                    Please provide feedback with at least 5 characters to help us improve the testing experience.
                                 </div>
                             </div>
 

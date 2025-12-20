@@ -111,8 +111,8 @@ class TestFeedback(db.Model):
     audio_comfort_rating = db.Column(db.Integer, nullable=True)  # Was the audio comfortable?
     ease_of_use_rating = db.Column(db.Integer, nullable=True)  # How easy was the test to use?
     
-    # Optional text feedback
-    suggestions_text = db.Column(db.Text, nullable=True)  # "Any suggestions or issues you faced?"
+    # Required text feedback (for NLP analysis)
+    suggestions_text = db.Column(db.Text, nullable=False)  # "Any suggestions or issues you faced?" - Required for NLP
     
     # Metadata
     user_agent = db.Column(db.String(500), nullable=True)  # Browser info for technical issues
@@ -1832,7 +1832,7 @@ def submit_feedback():
     - test_clarity_rating (optional): 1-5 rating for instruction clarity
     - audio_comfort_rating (optional): 1-5 rating for audio comfort
     - ease_of_use_rating (optional): 1-5 rating for ease of use
-    - suggestions_text (optional): Free text suggestions/issues
+    - suggestions_text (required): Free text suggestions/issues - minimum 5 characters
     
     Returns:
     - Success confirmation without exposing stored data
@@ -1845,6 +1845,15 @@ def submit_feedback():
         return jsonify({'error': 'Session ID required'}), 400
     
     try:
+        # BACKEND VALIDATION: Enforce required feedback
+        suggestions_text = data.get('suggestions_text', '').strip()
+        if not suggestions_text or len(suggestions_text) < 5:
+            return jsonify({'error': 'Feedback is required and must contain at least 5 characters'}), 400
+        
+        # Validate suggestions text length (prevent abuse)
+        if len(suggestions_text) > 1000:  # Reasonable limit
+            return jsonify({'error': 'Suggestions text too long (max 1000 characters)'}), 400
+        
         # Validate ratings are in 1-5 range if provided
         rating_fields = ['test_clarity_rating', 'audio_comfort_rating', 'ease_of_use_rating']
         for field in rating_fields:
@@ -1857,22 +1866,17 @@ def submit_feedback():
                 except (ValueError, TypeError):
                     return jsonify({'error': f'{field} must be a valid integer'}), 400
         
-        # Validate suggestions text length (prevent abuse)
-        suggestions_text = data.get('suggestions_text', '').strip()
-        if len(suggestions_text) > 1000:  # Reasonable limit
-            return jsonify({'error': 'Suggestions text too long (max 1000 characters)'}), 400
-        
         # Get user agent for technical debugging (no personal data)
         user_agent = request.headers.get('User-Agent', '')[:500]  # Truncate to prevent overflow
         
-        # Create feedback entry
+        # Create feedback entry - suggestions_text is now guaranteed to be non-empty
         feedback = TestFeedback(
             session_id=session_id,
             user_id=user_id if user_id else None,  # Allow anonymous feedback
             test_clarity_rating=data.get('test_clarity_rating'),
             audio_comfort_rating=data.get('audio_comfort_rating'),
             ease_of_use_rating=data.get('ease_of_use_rating'),
-            suggestions_text=suggestions_text if suggestions_text else None,
+            suggestions_text=suggestions_text,  # Now required and validated
             user_agent=user_agent
         )
         

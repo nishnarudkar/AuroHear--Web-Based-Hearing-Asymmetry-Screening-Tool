@@ -4871,7 +4871,27 @@ async function handleFeedbackSubmission(event) {
     
     const form = event.target;
     const submitButton = document.getElementById('submit-feedback-btn');
-    const suggestionsText = document.getElementById('suggestions-input').value.trim();
+    const suggestionsInput = document.getElementById('suggestions-input');
+    const suggestionsText = suggestionsInput.value.trim();
+    const feedbackError = document.getElementById('feedback-error');
+    
+    // CLIENT-SIDE VALIDATION: Feedback must contain at least 5 non-whitespace characters
+    if (!suggestionsText || suggestionsText.length < 5) {
+        // Show inline error message
+        if (feedbackError) {
+            feedbackError.classList.remove('hidden');
+        }
+        // Highlight the textarea
+        suggestionsInput.style.borderColor = '#e74c3c';
+        suggestionsInput.focus();
+        return; // Prevent form submission
+    }
+    
+    // Hide error message if validation passes
+    if (feedbackError) {
+        feedbackError.classList.add('hidden');
+    }
+    suggestionsInput.style.borderColor = '';
     
     // Show loading state
     form.classList.add('submitting');
@@ -4888,7 +4908,7 @@ async function handleFeedbackSubmission(event) {
             test_clarity_rating: feedbackRatings.test_clarity,
             audio_comfort_rating: feedbackRatings.audio_comfort,
             ease_of_use_rating: feedbackRatings.ease_of_use,
-            suggestions_text: suggestionsText || null
+            suggestions_text: suggestionsText // Now guaranteed to be non-empty
         };
         
         // Submit feedback
@@ -4904,7 +4924,9 @@ async function handleFeedbackSubmission(event) {
             showFeedbackSuccess();
             logDebug('Feedback submitted successfully');
         } else {
-            throw new Error('Failed to submit feedback');
+            // Handle backend validation errors
+            const errorData = await response.json().catch(() => ({ error: 'Failed to submit feedback' }));
+            throw new Error(errorData.error || 'Failed to submit feedback');
         }
         
     } catch (error) {
@@ -4917,8 +4939,8 @@ async function handleFeedbackSubmission(event) {
             submitButton.disabled = false;
         }
         
-        // Show user-friendly error message
-        showNotification('Failed to submit feedback. Please try again.', 'error');
+        // Show specific error message from backend or generic message
+        showNotification(error.message || 'Failed to submit feedback. Please try again.', 'error');
     }
 }
 

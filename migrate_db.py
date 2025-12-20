@@ -85,7 +85,7 @@ def migrate_database():
                             test_clarity_rating INTEGER,
                             audio_comfort_rating INTEGER,
                             ease_of_use_rating INTEGER,
-                            suggestions_text TEXT,
+                            suggestions_text TEXT NOT NULL,
                             user_agent VARCHAR(500)
                         )
                     '''))
@@ -96,7 +96,22 @@ def migrate_database():
                     conn.commit()
                 print('✓ test_feedback table created with indexes')
             else:
-                print('✓ test_feedback table already exists')
+                # Check if we need to migrate existing feedback table
+                feedback_columns = [c['name'] for c in inspector.get_columns('test_feedback')]
+                suggestions_col = next((col for col in inspector.get_columns('test_feedback') if col['name'] == 'suggestions_text'), None)
+                
+                if suggestions_col and suggestions_col.get('nullable', True):
+                    print('Migrating test_feedback table to make suggestions_text required...')
+                    with db.engine.connect() as conn:
+                        # Update existing NULL/empty values to a default message
+                        conn.execute(db.text("UPDATE test_feedback SET suggestions_text = 'No feedback provided' WHERE suggestions_text IS NULL OR suggestions_text = ''"))
+                        
+                        # Make the column NOT NULL
+                        conn.execute(db.text("ALTER TABLE test_feedback ALTER COLUMN suggestions_text SET NOT NULL"))
+                        conn.commit()
+                    print('✓ test_feedback table migrated - suggestions_text is now required')
+                else:
+                    print('✓ test_feedback table already has required suggestions_text')
             
             # Drop old tables if they exist (migration from old structure)
             if 'screening_session' in existing_tables:
