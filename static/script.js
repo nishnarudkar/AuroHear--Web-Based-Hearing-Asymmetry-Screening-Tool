@@ -1050,6 +1050,10 @@ async function playTestTone(freq, channel, levelDb) {
 
 /* Channel test button (device check) */
 async function playChannelTest(channel) {
+    // Set flag that user has initiated audio test
+    hasUserInitiatedAudioTest = true;
+    audioErrorDismissed = false; // Reset dismissal for new test
+    
     // Check if audio is already playing before attempting channel test
     if (AudioStateManager.isTonePlaying) {
         logDebug('Channel test blocked - another tone is playing');
@@ -1784,13 +1788,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const isAuthenticated = await checkAuthenticationStatus();
     updateUIForAuthState();
     
-    // Run audio system diagnostics in production
-    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-        setTimeout(() => {
-            runAudioDiagnostics();
-        }, 2000);
-    }
-    
     // If authenticated, skip login and go to welcome
     if (isAuthenticated) {
         showScreen('welcome');
@@ -1869,7 +1866,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (rightBtn) rightBtn.addEventListener('click', () => playChannelTest('right'));
 
     const headphonesReady = document.getElementById('headphones-ready-btn');
-    if (headphonesReady) headphonesReady.addEventListener('click', () => showScreen('calibration'));
+    if (headphonesReady) headphonesReady.addEventListener('click', () => {
+        resetAudioErrorState(); // Reset error state when user confirms headphones are ready
+        showScreen('calibration');
+    });
     const backConsentBtn = document.getElementById('back-consent-btn');
     if (backConsentBtn) backConsentBtn.addEventListener('click', () => showScreen('consent'));
 
@@ -4525,8 +4525,18 @@ async function testAudio() {
     console.log('Audio tests completed');
 }
 
-// Show audio error to user with troubleshooting options
+// Audio error state management
+let hasUserInitiatedAudioTest = false;
+let audioErrorDismissed = false;
+
+// Show audio error to user with troubleshooting options (only after user action)
 function showAudioError(message) {
+    // Only show error if user has initiated an audio test and hasn't dismissed it
+    if (!hasUserInitiatedAudioTest || audioErrorDismissed) {
+        console.log('Audio error suppressed - no user action yet or error dismissed:', message);
+        return;
+    }
+    
     // Remove any existing audio error notifications
     const existingErrors = document.querySelectorAll('.audio-error-notification');
     existingErrors.forEach(el => el.remove());
@@ -4558,7 +4568,7 @@ function showAudioError(message) {
             • Try refreshing the page<br>
             • Check browser audio permissions
         </div>
-        <button onclick="this.parentElement.remove()" style="
+        <button onclick="dismissAudioError()" style="
             background: rgba(255,255,255,0.2);
             border: 1px solid rgba(255,255,255,0.3);
             color: white;
@@ -4568,7 +4578,7 @@ function showAudioError(message) {
             cursor: pointer;
             margin-right: 8px;
         ">Dismiss</button>
-        <button onclick="window.runAudioDiagnostics()" style="
+        <button onclick="userInitiatedAudioTest()" style="
             background: rgba(255,255,255,0.2);
             border: 1px solid rgba(255,255,255,0.3);
             color: white;
@@ -4587,6 +4597,28 @@ function showAudioError(message) {
             errorDiv.parentNode.removeChild(errorDiv);
         }
     }, 8000);
+}
+
+// Audio error state management functions
+function dismissAudioError() {
+    audioErrorDismissed = true;
+    const errorDiv = document.querySelector('.audio-error-notification');
+    if (errorDiv) {
+        errorDiv.remove();
+    }
+    console.log('Audio error dismissed by user');
+}
+
+function userInitiatedAudioTest() {
+    hasUserInitiatedAudioTest = true;
+    audioErrorDismissed = false; // Reset dismissal when user tries again
+    window.runAudioDiagnostics();
+}
+
+function resetAudioErrorState() {
+    hasUserInitiatedAudioTest = false;
+    audioErrorDismissed = false;
+    console.log('Audio error state reset');
 }
 
 // Run comprehensive audio diagnostics
@@ -4660,23 +4692,35 @@ async function runAudioDiagnostics() {
     // Log comprehensive results
     console.log('🔊 Audio Diagnostics Complete:', diagnostics);
     
-    // Show warning if critical issues detected
+    // Show warning only for genuine critical issues (filter out false positives)
     const criticalIssues = [];
+    
+    // Only flag server endpoint if it's actually unavailable (not just suspended context)
     if (!diagnostics.tests.serverToneEndpoint?.success) {
         criticalIssues.push('Server audio endpoint unavailable');
     }
-    if (!diagnostics.tests.audioPlayback?.success) {
+    
+    // Only flag audio playback if it fails after user interaction (not autoplay restrictions)
+    if (!diagnostics.tests.audioPlayback?.success && hasUserInitiatedAudioTest) {
         criticalIssues.push('Audio playback blocked or failed');
     }
-    if (!diagnostics.isSecureContext && diagnostics.protocol !== 'https:') {
+    
+    // Only flag insecure context in production environments
+    if (!diagnostics.isSecureContext && diagnostics.protocol !== 'https:' && 
+        window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
         criticalIssues.push('Insecure context may limit audio features');
     }
     
-    if (criticalIssues.length > 0) {
+    // Only show error if there are genuine issues AND user has initiated a test
+    if (criticalIssues.length > 0 && hasUserInitiatedAudioTest) {
         console.warn('⚠️ Audio System Issues Detected:', criticalIssues);
         showAudioError(`Audio system issues detected: ${criticalIssues.join(', ')}. Please check browser settings.`);
     } else {
         console.log('✅ Audio system appears functional');
+        // If diagnostics pass after user test, reset error state
+        if (hasUserInitiatedAudioTest && criticalIssues.length === 0) {
+            audioErrorDismissed = false; // Allow future errors to show if needed
+        }
     }
     
     return diagnostics;
